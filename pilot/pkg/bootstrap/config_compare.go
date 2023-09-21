@@ -42,7 +42,7 @@ func needsPush(prev config.Config, curr config.Config) bool {
 		}
 	}
 	for annotation := range curr.Meta.Annotations {
-		if strings.Contains(annotation, "istio.io") {
+		if strings.Contains(annotation, "istio.io") || strings.Contains(annotation, "mse.ingress") {
 			return true
 		}
 	}
@@ -52,7 +52,7 @@ func needsPush(prev config.Config, curr config.Config) bool {
 		}
 	}
 	for annotation := range prev.Meta.Annotations {
-		if strings.Contains(annotation, "istio.io") {
+		if strings.Contains(annotation, "istio.io") || strings.Contains(annotation, "mse.ingress") {
 			return true
 		}
 	}

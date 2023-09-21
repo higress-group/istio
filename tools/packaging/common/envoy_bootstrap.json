@@ -61,8 +61,40 @@
     "use_all_default_tags": false,
     "stats_tags": [
       {
+        "tag_name": "route",
+        "regex": "^vhost\\..*?\\.route\\.([^\\.]+\\.)upstream"
+      },
+      {
+        "tag_name": "ecds_name",
+        "regex": "extension_config_discovery\\.(.*?\\.)[^\\.]+$"
+      },
+      {
+        "tag_name": "rds_name",
+        "regex": "rds\\.(.*?\\.)[^\\.]+$"
+      },
+      {
+        "tag_name": "sds_name",
+        "regex": "sds\\.(.*?\\.)[^\\.]+$"
+      },
+      {
+        "tag_name": "vhost",
+        "regex": "^vhost\\.((.*?)\\.)(vcluster|route)"
+      },
+      {
+        "tag_name": "vcluster",
+        "regex": "vcluster\\.((.*?)\\.)upstream"
+      },
+      {
+        "tag_name": "dest_zone",
+        "regex": "zone\\.[^\\.]+\\.([^\\.]+\\.)"
+      },
+      {
+        "tag_name": "from_zone",
+        "regex": "zone\\.([^\\.]+\\.)"
+      },
+      {
         "tag_name": "cluster_name",
-        "regex": "^cluster\\.((.+?(\\..+?\\.svc\\.cluster\\.local)?)\\.)"
+        "regex": "^cluster\\.((.*?)\\.)(http1\\.|http2\\.|health_check\\.|zone\\.|external\\.|circuit_breakers\\.|[^\\.]+$)"
       },
       {
         "tag_name": "tcp_prefix",
@@ -82,7 +114,7 @@
       },
       {
         "tag_name": "http_conn_manager_prefix",
-        "regex": "^http\\.(((?:[_.[:digit:]]*|[_\\[\\]aAbBcCdDeEfF[:digit:]]*))\\.)"
+        "regex": "^http\\.(((outbound_([0-9]{1,3}\\.{0,1}){4}_\\d{0,5})|([^\\.]+))\\.)"
       },
       {
         "tag_name": "listener_address",

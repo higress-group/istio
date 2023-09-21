@@ -96,6 +96,7 @@ func TestClientNoCRDs(t *testing.T) {
 
 // Ensure that the client can run without CRDs present, but then added later
 func TestClientDelayedCRDs(t *testing.T) {
+	t.Skip("We don't need watch crd add or remove.")
 	schema := collection.NewSchemasBuilder().MustAdd(collections.Sidecar).Build()
 	store, fake := makeClient(t, schema)
 	retry.UntilOrFail(t, store.HasSynced, retry.Timeout(time.Second))

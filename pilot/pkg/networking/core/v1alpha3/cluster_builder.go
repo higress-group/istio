@@ -281,6 +281,15 @@ func (cb *ClusterBuilder) applyDestinationRule(mc *MutableCluster, clusterMode C
 	if destRule != nil {
 		opts.isDrWithSelector = destinationRule.GetWorkloadSelector() != nil
 	}
+
+	// Added by ingress
+	// Support for same unit for service with DNS or static resolution.
+	if destRule != nil && destRule.Annotations != nil {
+		addExtensionLoadBalanceMeta(mc.cluster, destRule.Annotations)
+		opts.tlsExtendParams = getTlsParamsFromAnnotation(destRule.Annotations)
+	}
+	// End added by ingress
+
 	// Apply traffic policy for the main default cluster.
 	cb.applyTrafficPolicy(opts)
 
@@ -328,6 +337,7 @@ func MergeTrafficPolicy(original, subsetPolicy *networking.TrafficPolicy, port *
 		mergedPolicy.LoadBalancer = original.LoadBalancer
 		mergedPolicy.OutlierDetection = original.OutlierDetection
 		mergedPolicy.Tls = original.Tls
+		mergedPolicy.HealthChecks = original.HealthChecks
 	}
 
 	// Override with subset values.
@@ -343,6 +353,9 @@ func MergeTrafficPolicy(original, subsetPolicy *networking.TrafficPolicy, port *
 	if subsetPolicy.Tls != nil {
 		mergedPolicy.Tls = subsetPolicy.Tls
 	}
+	if subsetPolicy.HealthChecks != nil {
+		mergedPolicy.HealthChecks = subsetPolicy.HealthChecks
+	}
 
 	// Check if port level overrides exist, if yes override with them.
 	if port != nil {
@@ -353,6 +366,7 @@ func MergeTrafficPolicy(original, subsetPolicy *networking.TrafficPolicy, port *
 				mergedPolicy.OutlierDetection = p.OutlierDetection
 				mergedPolicy.LoadBalancer = p.LoadBalancer
 				mergedPolicy.Tls = p.Tls
+				mergedPolicy.HealthChecks = p.HealthChecks
 				break
 			}
 		}
@@ -762,8 +776,16 @@ func (cb *ClusterBuilder) setH2Options(mc *MutableCluster) {
 	}
 }
 
+func selectHealthChecks(opts buildClusterOpts) []*networking.HealthCheck {
+	if opts.policy == nil || len(opts.policy.HealthChecks) == 0 {
+		return []*networking.HealthCheck{}
+	}
+	return opts.policy.HealthChecks
+}
+
 func (cb *ClusterBuilder) applyTrafficPolicy(opts buildClusterOpts) {
 	connectionPool, outlierDetection, loadBalancer, tls := selectTrafficPolicyComponents(opts.policy)
+	healthChecks := selectHealthChecks(opts)
 	// Connection pool settings are applicable for both inbound and outbound clusters.
 	if connectionPool == nil {
 		connectionPool = &networking.ConnectionPoolSettings{}
@@ -773,6 +795,7 @@ func (cb *ClusterBuilder) applyTrafficPolicy(opts buildClusterOpts) {
 		cb.applyH2Upgrade(opts, connectionPool)
 		applyOutlierDetection(opts.mutable.cluster, outlierDetection)
 		applyLoadBalancer(opts.mutable.cluster, loadBalancer, opts.port, cb.locality, cb.proxyLabels, opts.mesh)
+		applyHealthChecks(opts.mutable.cluster, healthChecks)
 		if opts.clusterMode != SniDnatClusterMode {
 			autoMTLSEnabled := opts.mesh.GetEnableAutoMtls().Value
 			tls, mtlsCtxType := cb.buildAutoMtlsSettings(tls, opts.serviceAccounts, opts.istioMtlsSni,
@@ -1187,6 +1210,39 @@ func (cb *ClusterBuilder) buildUpstreamClusterTLSContext(opts *buildClusterOpts,
 			tlsContext.CommonTlsContext.AlpnProtocols = util.ALPNH2Only
 		}
 	}
+
+	// Added by Ingress
+	if opts.tlsExtendParams != nil && tlsContext != nil && tlsContext.CommonTlsContext != nil {
+		params := opts.tlsExtendParams
+		// Tlsparams always be nil in istio-1.9
+		if tlsContext.CommonTlsContext.TlsParams == nil {
+			tlsContext.CommonTlsContext.TlsParams = &auth.TlsParameters{}
+		}
+		if opts.tlsExtendParams.cipherSuites != nil {
+			tlsContext.CommonTlsContext.TlsParams.CipherSuites = params.cipherSuites
+		}
+		if opts.tlsExtendParams.tlsMaxParameter != nil {
+			tlsContext.CommonTlsContext.TlsParams.TlsMaximumProtocolVersion = *params.tlsMaxParameter
+		}
+		if opts.tlsExtendParams.tlsMaxParameter != nil {
+			tlsContext.CommonTlsContext.TlsParams.TlsMinimumProtocolVersion = *params.tlsMaxParameter
+		}
+		if tlsContext.CommonTlsContext.GetValidationContextType() != nil && params.trustedChain != nil {
+			ctxType := tlsContext.CommonTlsContext.GetValidationContextType()
+			if ctx, ok := ctxType.(*auth.CommonTlsContext_ValidationContext); ok {
+				// if validationContext not create, should create first
+				if ctx.ValidationContext == nil {
+					ctx.ValidationContext = &auth.CertificateValidationContext{}
+				}
+				ctx.ValidationContext.TrustChainVerification = *params.trustedChain
+			}
+			if tlsContext.CommonTlsContext.GetCombinedValidationContext() != nil && params.trustedChain != nil {
+				tlsContext.CommonTlsContext.GetCombinedValidationContext().DefaultValidationContext.TrustChainVerification = *params.trustedChain
+			}
+		}
+	}
+	// End added
+
 	return tlsContext, nil
 }
 

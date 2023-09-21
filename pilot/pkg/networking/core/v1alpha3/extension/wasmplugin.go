@@ -16,9 +16,11 @@ package extension
 
 import (
 	core "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
+	composite_v3 "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/composite/v3"
 	wasm "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/wasm/v3"
 	hcm "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/network/http_connection_manager/v3"
 	"google.golang.org/protobuf/proto"
+	any "google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/durationpb"
 
 	extensions "istio.io/api/extensions/v1alpha1"
@@ -53,14 +55,24 @@ func PopAppend(list []*hcm.HttpFilter,
 }
 
 func toEnvoyHTTPFilter(wasmPlugin *model.WasmPluginWrapper) *hcm.HttpFilter {
+	// Added by Ingress
+	defaultConfig, _ := any.New(&composite_v3.Composite{})
+	// End Added by Ingress
 	return &hcm.HttpFilter{
 		Name: wasmPlugin.ResourceName,
 		ConfigType: &hcm.HttpFilter_ConfigDiscovery{
 			ConfigDiscovery: &core.ExtensionConfigSource{
 				ConfigSource: defaultConfigSource,
+				// Added by Ingress
+				ApplyDefaultConfigWithoutWarming: true,
+				DefaultConfig:                    defaultConfig,
+				// End Added by Ingress
 				TypeUrls: []string{
 					xds.WasmHTTPFilterType,
 					xds.RBACHTTPFilterType,
+					// Added by Ingress
+					xds.CompositeHTTPFilterType,
+					// End added by Ingress
 				},
 			},
 		},

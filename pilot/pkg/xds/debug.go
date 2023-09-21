@@ -207,6 +207,11 @@ func (s *DiscoveryServer) AddDebugHandlers(mux, internalMux *http.ServeMux, enab
 	s.addDebugHandler(mux, internalMux, "/debug/mcsz", "List information about Kubernetes MCS services", s.mcsz)
 
 	s.addDebugHandler(mux, internalMux, "/debug/list", "List all supported debug commands in json", s.list)
+
+	// Added by ingress
+	s.addDebugHandler(mux, internalMux, "/debug/ingressRoutez", "List all auto generated routes from ingress.", s.ingressRoutez)
+	s.addDebugHandler(mux, internalMux, "/debug/ingressDomainz", "List all auto generated gateway from ingress.", s.ingressDomainz)
+	// End added by ingress
 }
 
 func (s *DiscoveryServer) addDebugHandler(mux *http.ServeMux, internalMux *http.ServeMux,
@@ -1190,4 +1195,42 @@ func writeJSON(w http.ResponseWriter, obj any, req *http.Request) {
 func handleHTTPError(w http.ResponseWriter, err error) {
 	w.WriteHeader(http.StatusInternalServerError)
 	_, _ = w.Write([]byte(err.Error()))
+}
+
+// Added by ingress
+func (s *DiscoveryServer) ingressRoutez(w http.ResponseWriter, req *http.Request) {
+	if err := req.ParseForm(); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte("Failed to parse request\n"))
+		return
+	}
+
+	ingressRoutes := s.Env.IngressStore.GetIngressRoutes()
+	host := req.Form.Get("host")
+	if host != "" {
+		var valid, invalid []model.IngressRoute
+		for _, route := range ingressRoutes.Valid {
+			if route.Host == host {
+				valid = append(valid, route)
+			}
+		}
+
+		for _, route := range ingressRoutes.Invalid {
+			if route.Host == host {
+				invalid = append(invalid, route)
+			}
+		}
+
+		ingressRoutes.Valid = valid
+		ingressRoutes.Invalid = invalid
+	}
+
+	model.SortStableForIngressRoutes(ingressRoutes.Valid)
+	model.SortStableForIngressRoutes(ingressRoutes.Invalid)
+
+	writeJSON(w, ingressRoutes, req)
+}
+
+func (s *DiscoveryServer) ingressDomainz(w http.ResponseWriter, req *http.Request) {
+	writeJSON(w, s.Env.IngressStore.GetIngressDomains(), req)
 }

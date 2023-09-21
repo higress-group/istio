@@ -274,6 +274,35 @@ func TestGenerator(t *testing.T) {
           exactMatch: GET
           name: :method`),
 		},
+		{
+			name:  "extensionPathGeneratorForExact",
+			g:     extensionPathGenerator{},
+			value: "exact|/abc",
+			want: yamlPermission(t, `
+         urlPath:
+          path:
+            exact: /abc`),
+		},
+		{
+			name:  "extensionPathGeneratorForPrefix",
+			g:     extensionPathGenerator{},
+			value: "prefix|/app/test",
+			want: yamlPermission(t, `
+         urlPath:
+          path:
+            prefix: /app/test`),
+		},
+		{
+			name:  "extensionPathGeneratorForRegex",
+			g:     extensionPathGenerator{},
+			value: "regex|/app/.*/test",
+			want: yamlPermission(t, `
+         urlPath:
+           path:
+             safeRegex:
+               googleRe2: {}
+               regex: /app/.*/test`),
+		},
 	}
 
 	for _, tc := range cases {

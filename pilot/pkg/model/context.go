@@ -106,6 +106,11 @@ type Environment struct {
 	// EndpointShards for a service. This is a global (per-server) list, built from
 	// incremental updates. This is keyed by service and namespace
 	EndpointIndex *EndpointIndex
+	// Added by ingress
+	IngressStore IngressStore
+
+	MCPMode bool
+	// End added by ingress
 }
 
 func (e *Environment) Mesh() *meshconfig.MeshConfig {
@@ -257,6 +262,18 @@ type XdsDeltaResourceGenerator interface {
 	// GenerateDeltas returns the changed and removed resources, along with whether or not delta was actually used.
 	GenerateDeltas(proxy *Proxy, req *PushRequest, w *WatchedResource) (Resources, DeletedResources, XdsLogDetails, bool, error)
 }
+
+// Added by ingress
+type McpResourceGenerator interface {
+	Generate(proxy *Proxy, push *PushContext, w *WatchedResource, updates *PushRequest) ([]*any.Any, XdsLogDetails, error)
+}
+
+type McpDeltaResourceGenerator interface {
+	XdsResourceGenerator
+	GenerateDeltas(proxy *Proxy, push *PushContext, updates *PushRequest, w *WatchedResource) ([]*any.Any, DeletedResources, XdsLogDetails, bool, error)
+}
+
+// End added by ingress
 
 // Proxy contains information about an specific instance of a proxy (envoy sidecar, gateway,
 // etc). The Proxy is initialized when a sidecar connects to Pilot, and populated from
@@ -697,6 +714,10 @@ type NodeMetadata struct {
 // if not present.
 func (m NodeMetadata) ProxyConfigOrDefault(def *meshconfig.ProxyConfig) *meshconfig.ProxyConfig {
 	if m.ProxyConfig != nil {
+		// Added by ingress
+		mergeProxyConfigWhenNeeded((*meshconfig.ProxyConfig)(m.ProxyConfig), def)
+		// End added by ingress
+
 		return (*meshconfig.ProxyConfig)(m.ProxyConfig)
 	}
 	return def

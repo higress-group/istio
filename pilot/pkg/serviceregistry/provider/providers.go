@@ -24,6 +24,14 @@ const (
 	Kubernetes ID = "Kubernetes"
 	// External is a service registry for externally provided ServiceEntries
 	External ID = "External"
+
+	// Added by gateway
+	// LocalConfig means the service info will get from local cache store.
+	LocalConfig ID = "LocalConfig"
+	// RemoteKubernetes means that istiod only watch remote cluster services not
+	// the cluster where istiod resides.
+	RemoteKubernetes ID = "RemoteKubernetes"
+	// End added by gateway
 )
 
 func (id ID) String() string {

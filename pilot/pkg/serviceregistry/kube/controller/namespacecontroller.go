@@ -15,6 +15,7 @@
 package controller
 
 import (
+	"fmt"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -42,7 +43,17 @@ const (
 	maxRetries = 5
 )
 
-var configMapLabel = map[string]string{"istio.io/config": "true"}
+var (
+	configMapLabel = map[string]string{"istio.io/config": "true"}
+
+	dynamicCACertNamespaceConfigMap = CACertNamespaceConfigMap
+)
+
+func init() {
+	if features.ClusterName != "" && features.ClusterName != "Kubernetes" {
+		dynamicCACertNamespaceConfigMap = fmt.Sprintf("%s-ca-root-cert", features.ClusterName)
+	}
+}
 
 // NamespaceController manages reconciles a configmap in each namespace with a desired set of data.
 type NamespaceController struct {
@@ -73,7 +84,7 @@ func NewNamespaceController(kubeClient kube.Client, caBundleWatcher *keycertbund
 	c.namespaces = kclient.New[*v1.Namespace](kubeClient)
 
 	c.configmaps.AddEventHandler(controllers.FilteredObjectSpecHandler(c.queue.AddObject, func(o controllers.Object) bool {
-		if o.GetName() != CACertNamespaceConfigMap {
+		if o.GetName() != dynamicCACertNamespaceConfigMap {
 			// This is a change to a configmap we don't watch, ignore it
 			return false
 		}
@@ -143,7 +154,7 @@ func (nc *NamespaceController) insertDataForNamespace(o types.NamespacedName) er
 		ns = o.Name
 	}
 	meta := metav1.ObjectMeta{
-		Name:      CACertNamespaceConfigMap,
+		Name:      dynamicCACertNamespaceConfigMap,
 		Namespace: ns,
 		Labels:    configMapLabel,
 	}

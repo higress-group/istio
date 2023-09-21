@@ -292,7 +292,11 @@ func (s *DiscoveryServer) generateEndpoints(b EndpointBuilder) *endpoint.Cluster
 				LocalityLbEndpoints: l.Endpoints[i],
 			}
 		}
-		loadbalancer.ApplyLocalityLBSetting(l, wrappedLocalityLbEndpoints, b.locality, b.proxy.Labels, lbSetting, enableFailover)
+
+		// Updated by ingress
+		//loadbalancer.ApplyLocalityLBSetting(l, wrappedLocalityLbEndpoints, b.locality, b.proxy.Labels, lbSetting, enableFailover)
+		annotations := b.AnnotationsOfDestinationRule()
+		loadbalancer.ApplyLocalityLBSettingWithExtension(l, wrappedLocalityLbEndpoints, b.locality, b.proxy.Labels, lbSetting, enableFailover, annotations[loadbalancer.AliIngressIstiodLoadBalanceAnnotation])
 	}
 	return l
 }

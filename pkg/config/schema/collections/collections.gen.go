@@ -509,6 +509,21 @@ var (
 		ValidateProto: validation.ValidateServiceEntry,
 	}.MustBuild()
 
+	Servicesubscriptionlists = resource.Builder{
+		Group:   "networking.istio.io",
+		Kind:    "ServiceSubscriptionList",
+		Plural:  "servicesubscriptionlists",
+		Version: "v1alpha3",
+		VersionAliases: []string{
+			"v1beta1",
+		},
+		Proto: "istio.networking.v1alpha3.ServiceSubscriptionList", StatusProto: "istio.meta.v1alpha1.IstioStatus",
+		ReflectType: reflect.TypeOf(&istioioapinetworkingv1alpha3.ServiceSubscriptionList{}).Elem(), StatusType: reflect.TypeOf(&istioioapimetav1alpha1.IstioStatus{}).Elem(),
+		ProtoPackage: "istio.io/api/networking/v1alpha3", StatusPackage: "istio.io/api/meta/v1alpha1",
+		ClusterScoped: false,
+		ValidateProto: validation.ValidateServiceSubscriptionList,
+	}.MustBuild()
+
 	Sidecar = resource.Builder{
 		Identifier: "Sidecar",
 		Group:      "networking.istio.io",
@@ -703,6 +718,7 @@ var (
 		MustAdd(Service).
 		MustAdd(ServiceAccount).
 		MustAdd(ServiceEntry).
+		MustAdd(Servicesubscriptionlists).
 		MustAdd(Sidecar).
 		MustAdd(TCPRoute).
 		MustAdd(TLSRoute).
@@ -753,6 +769,7 @@ var (
 		MustAdd(ProxyConfig).
 		MustAdd(RequestAuthentication).
 		MustAdd(ServiceEntry).
+		MustAdd(Servicesubscriptionlists).
 		MustAdd(Sidecar).
 		MustAdd(Telemetry).
 		MustAdd(VirtualService).
@@ -776,6 +793,7 @@ var (
 			MustAdd(ReferenceGrant).
 			MustAdd(RequestAuthentication).
 			MustAdd(ServiceEntry).
+			MustAdd(Servicesubscriptionlists).
 			MustAdd(Sidecar).
 			MustAdd(TCPRoute).
 			MustAdd(TLSRoute).
@@ -801,6 +819,7 @@ var (
 				MustAdd(ReferenceGrant).
 				MustAdd(RequestAuthentication).
 				MustAdd(ServiceEntry).
+				MustAdd(Servicesubscriptionlists).
 				MustAdd(Sidecar).
 				MustAdd(Telemetry).
 				MustAdd(VirtualService).

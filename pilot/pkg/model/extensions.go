@@ -166,7 +166,10 @@ func convertToWasmPluginWrapper(originPlugin config.Config) *WasmPluginWrapper {
 			Name:          resourceName,
 			RootId:        wasmPlugin.PluginName,
 			Configuration: cfg,
-			Vm:            buildVMConfig(datasource, plugin.ResourceVersion, wasmPlugin),
+			// Added by Ingress
+			FailOpen: true,
+			// End added by Ingress
+			Vm: buildVMConfig(datasource, plugin.ResourceVersion, wasmPlugin),
 		},
 	}
 	if err != nil {

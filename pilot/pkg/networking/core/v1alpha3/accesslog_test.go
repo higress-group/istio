@@ -177,6 +177,32 @@ func verify(t *testing.T, encoding meshconfig.MeshConfig_AccessLogEncoding, got 
 	}
 }
 
+func verifyWithFilter(t *testing.T, encoding meshconfig.MeshConfig_AccessLogEncoding, got *accesslog.AccessLog, wantFormat string) {
+	cfg, _ := conversion.MessageToStruct(got.GetTypedConfig())
+	if encoding == meshconfig.MeshConfig_JSON {
+		jsonFormat := cfg.GetFields()["log_format"].GetStructValue().GetFields()["json_format"]
+		jsonFormatString, _ := protomarshal.ToJSON(jsonFormat)
+		if jsonFormatString != wantFormat {
+			t.Errorf("\nwant: %s\n got: %s", wantFormat, jsonFormatString)
+		}
+	} else {
+		textFormatString := cfg.GetFields()["log_format"].GetStructValue().GetFields()["text_format_source"].GetStructValue().
+			GetFields()["inline_string"].GetStringValue()
+		if textFormatString != wantFormat {
+			t.Errorf("\nwant: %s\n got: %s", wantFormat, textFormatString)
+		}
+	}
+
+	// verify health check filter
+	if got.GetFilter() == nil {
+		t.Fatal("Access log must have filter")
+	}
+
+	if got.GetFilter().GetNotHealthCheckFilter() == nil {
+		t.Fatal("Access log must have notHealthCheckFilter")
+	}
+}
+
 func TestAccessLogPatch(t *testing.T) {
 	// Regression test for https://github.com/istio/istio/issues/35778
 	cg := NewConfigGenTest(t, TestOptions{

@@ -59,6 +59,14 @@ const (
 // Leader election key prefix for remote istiod managed clusters
 const remoteIstiodPrefix = "^"
 
+var ClusterScopedNamespaceController = NamespaceController
+
+func init() {
+	if features.ClusterName != "" && features.ClusterName != "Kubernetes" {
+		ClusterScopedNamespaceController = fmt.Sprintf("%s-namespace-controller-election", features.ClusterName)
+	}
+}
+
 type LeaderElection struct {
 	namespace string
 	name      string

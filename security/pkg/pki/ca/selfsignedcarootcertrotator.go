@@ -113,12 +113,12 @@ func (rotator *SelfSignedCARootCertRotator) Run(stopCh chan struct{}) {
 // checkAndRotateRootCert decides whether root cert should be refreshed, and rotates
 // root cert for self-signed Citadel.
 func (rotator *SelfSignedCARootCertRotator) checkAndRotateRootCert() {
-	caSecret, scrtErr := rotator.caSecretController.LoadCASecretWithRetry(CASecret,
+	caSecret, scrtErr := rotator.caSecretController.LoadCASecretWithRetry(CASecretName,
 		rotator.config.caStorageNamespace, rotator.config.retryInterval, rotator.config.retryMax)
 
 	if scrtErr != nil {
 		rootCertRotatorLog.Errorf("Fail to load CA secret %s:%s (error: %s), skip cert rotation job",
-			rotator.config.caStorageNamespace, CASecret, scrtErr.Error())
+			rotator.config.caStorageNamespace, CASecretName, scrtErr.Error())
 	} else {
 		rotator.checkAndRotateRootCertForSigningCertCitadel(caSecret)
 	}

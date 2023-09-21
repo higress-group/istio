@@ -208,6 +208,12 @@ func addFlags(proxyCmd *cobra.Command) {
 		"The log path for outlier detection")
 	proxyCmd.PersistentFlags().BoolVar(&proxyArgs.EnableProfiling, "profiling", true,
 		"Enable profiling via web interface host:port/debug/pprof/.")
+
+	// NOTE: Only cmd args that affects pilot-agent should be added here.
+	// Otherwise, please use the meshConfig by local file or configMap in K8s!
+	// Added by ingress
+	// Support for local time format of istio log
+	proxyCmd.PersistentFlags().BoolVar(&loggingOptions.LocalTime, "localTime", false, "Enable local time format for istio log.")
 }
 
 func initStatusServer(ctx context.Context, proxy *model.Proxy, proxyConfig *meshconfig.ProxyConfig,

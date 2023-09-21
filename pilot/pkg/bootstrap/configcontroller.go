@@ -96,7 +96,7 @@ func (s *Server) initConfigController(args *PilotArgs) error {
 
 		s.addTerminatingStartFunc(func(stop <-chan struct{}) error {
 			leaderelection.
-				NewLeaderElection(args.Namespace, args.PodName, leaderelection.IngressController, args.Revision, s.kubeClient).
+				NewLeaderElection(args.Namespace, args.PodName, leaderelection.BuildClusterScopedLeaderElection(leaderelection.IngressController), args.Revision, s.kubeClient).
 				AddRunFunction(func(leaderStop <-chan struct{}) {
 					ingressSyncer := ingress.NewStatusSyncer(s.environment.Watcher, s.kubeClient, args.RegistryOptions.KubeOptions)
 					// Start informers again. This fixes the case where informers for namespace do not start,
@@ -151,7 +151,7 @@ func (s *Server) initK8SConfigStore(args *PilotArgs) error {
 		s.ConfigStores = append(s.ConfigStores, s.environment.GatewayAPIController)
 		s.addTerminatingStartFunc(func(stop <-chan struct{}) error {
 			leaderelection.
-				NewLeaderElection(args.Namespace, args.PodName, leaderelection.GatewayStatusController, args.Revision, s.kubeClient).
+				NewLeaderElection(args.Namespace, args.PodName, leaderelection.BuildClusterScopedLeaderElection(leaderelection.GatewayStatusController), args.Revision, s.kubeClient).
 				AddRunFunction(func(leaderStop <-chan struct{}) {
 					log.Infof("Starting gateway status writer")
 					gwc.SetStatusWrite(true, s.statusManager)
@@ -171,7 +171,7 @@ func (s *Server) initK8SConfigStore(args *PilotArgs) error {
 		if features.EnableGatewayAPIDeploymentController {
 			s.addTerminatingStartFunc(func(stop <-chan struct{}) error {
 				leaderelection.
-					NewPerRevisionLeaderElection(args.Namespace, args.PodName, leaderelection.GatewayDeploymentController, args.Revision, s.kubeClient).
+					NewPerRevisionLeaderElection(args.Namespace, args.PodName, leaderelection.BuildClusterScopedLeaderElection(leaderelection.GatewayDeploymentController), args.Revision, s.kubeClient).
 					AddRunFunction(func(leaderStop <-chan struct{}) {
 						// We can only run this if the Gateway CRD is created
 						if configController.WaitForCRD(gvk.KubernetesGateway, leaderStop) {

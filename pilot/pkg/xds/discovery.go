@@ -85,6 +85,10 @@ type DiscoveryServer struct {
 	// Normal istio clients use the default generator - will not be impacted by this.
 	Generators map[string]model.XdsResourceGenerator
 
+	// Added by ingress
+	McpGenerators map[string]model.McpResourceGenerator
+	// End added by ingress
+
 	// ProxyNeedsPush is a function that determines whether a push can be completely skipped. Individual generators
 	// may also choose to not send any updates.
 	ProxyNeedsPush func(proxy *model.Proxy, req *model.PushRequest) bool
@@ -155,8 +159,11 @@ type DiscoveryServer struct {
 // NewDiscoveryServer creates DiscoveryServer that sources data from Pilot's internal mesh data structures
 func NewDiscoveryServer(env *model.Environment, instanceID string, clusterID cluster.ID, clusterAliases map[string]string) *DiscoveryServer {
 	out := &DiscoveryServer{
-		Env:                 env,
-		Generators:          map[string]model.XdsResourceGenerator{},
+		Env:        env,
+		Generators: map[string]model.XdsResourceGenerator{},
+		// Added by ingress
+		McpGenerators: map[string]model.McpResourceGenerator{},
+		// End added by ingress
 		ProxyNeedsPush:      DefaultProxyNeedsPush,
 		concurrentPushLimit: make(chan struct{}, features.PushThrottle),
 		RequestRateLimit:    rate.NewLimiter(rate.Limit(features.RequestLimit), 1),

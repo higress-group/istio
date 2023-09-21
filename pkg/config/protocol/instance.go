@@ -57,6 +57,14 @@ const (
 	// HBONE declares that the port carries HBONE traffic.
 	// This cannot be declared by Services, but is used for some internal code that uses Protocol
 	HBONE Instance = "HBONE"
+	// Added by gateway
+	// TRI declares that the port carries Triple traffic.
+	TRI Instance = "TRI"
+	// HSF declares that the port carries HSF traffic.
+	HSF Instance = "HSF"
+	// Dubbo declares that the port carries Dubbo traffic.
+	Dubbo Instance = "Dubbo"
+	// End added by gateway
 	// Unsupported - value to signify that the protocol is unsupported.
 	Unsupported Instance = "UnsupportedProtocol"
 )
@@ -88,6 +96,14 @@ func Parse(s string) Instance {
 		return Redis
 	case "mysql":
 		return MySQL
+	// Added by ingress
+	case "tri":
+		return GRPC
+	case "hsf":
+		return HSF
+	case "dubbo":
+		return Dubbo
+		// End by ingress
 	}
 
 	return Unsupported
@@ -116,7 +132,7 @@ func (i Instance) IsHTTP() bool {
 // IsTCP is true for protocols that use TCP as transport protocol
 func (i Instance) IsTCP() bool {
 	switch i {
-	case TCP, HTTPS, TLS, Mongo, Redis, MySQL:
+	case TCP, HTTPS, TLS, Mongo, Redis, MySQL, Dubbo:
 		return true
 	default:
 		return false

@@ -1021,7 +1021,7 @@ func TestBuildGatewayListenerTlsContext(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			ret := buildGatewayListenerTLSContext(tc.mesh, tc.server, &pilot_model.Proxy{
 				Metadata: &pilot_model.NodeMetadata{},
-			}, tc.transportProtocol)
+			}, tc.transportProtocol, nil)
 			if diff := cmp.Diff(tc.result, ret, protocmp.Transform()); diff != "" {
 				t.Errorf("got diff: %v", diff)
 			}
@@ -1672,7 +1672,7 @@ func TestCreateGatewayHTTPFilterChainOpts(t *testing.T) {
 				tc.server: {SNIHosts: pilot_model.GetSNIHostsForServer(tc.server)},
 			}}
 			ret := cgi.createGatewayHTTPFilterChainOpts(tc.node, tc.server.Port, tc.server,
-				tc.routeName, tc.proxyConfig, tc.transportProtocol, cg.PushContext())
+				tc.routeName, tc.proxyConfig, tc.transportProtocol, cg.PushContext(), nil)
 			if diff := cmp.Diff(tc.result.tlsContext, ret.tlsContext, protocmp.Transform()); diff != "" {
 				t.Errorf("got diff in tls context: %v", diff)
 			}
@@ -2966,6 +2966,92 @@ func TestBuildNameToServiceMapForHttpRoutes(t *testing.T) {
 
 	if service, exist := nameToServiceMap[bazHostName]; !exist || service != nil {
 		t.Errorf("The value of hostname %s mapping must be exist and it should be nil.", bazHostName)
+	}
+}
+
+func TestBuildGatewayListenerWithFirstCorsFilter(t *testing.T) {
+	gateway := config.Config{
+		Meta: config.Meta{Name: uuid.NewString(), Namespace: uuid.NewString(), GroupVersionKind: gvk.Gateway},
+		Spec: &networking.Gateway{
+			Servers: []*networking.Server{
+				{
+					Port: &networking.Port{Name: "grpc-web", Number: 80, Protocol: "GRPC-Web"},
+				},
+			},
+		},
+	}
+	cg := NewConfigGenTest(t, TestOptions{
+		Configs: []config.Config{gateway},
+	})
+	proxy := cg.SetupProxy(&proxyGateway)
+	builder := cg.ConfigGen.buildGatewayListeners(&ListenerBuilder{node: proxy, push: cg.PushContext()})
+	if len(builder.getListeners()) != 1 {
+		t.Fatal("Must have one listener")
+	}
+	if len(builder.getListeners()[0].GetFilterChains()) != 1 {
+		t.Fatal("Must have one filter chain")
+	}
+	if len(builder.getListeners()[0].GetFilterChains()[0].GetFilters()) != 1 {
+		t.Fatal("Must have one filter in filter chain")
+	}
+	hcm := &hcm.HttpConnectionManager{}
+	if err := getFilterConfig(builder.getListeners()[0].GetFilterChains()[0].GetFilters()[0], hcm); err != nil {
+		t.Fatalf("failed to get HCM, config %v", hcm)
+	}
+	if hcm.GetHttpFilters()[0].Name != xdsfilters.Cors.Name {
+		t.Fatal("The first filter must be cors")
+	}
+}
+
+func TestShouldDisableH2(t *testing.T) {
+	cases := []struct {
+		opts           *buildListenerFilterChainExtraOpts
+		expectedResult bool
+	}{
+		{
+			opts:           nil,
+			expectedResult: false,
+		},
+		{
+			opts: &buildListenerFilterChainExtraOpts{
+				gatewayConfig: &config.Config{
+					Meta: config.Meta{
+						Annotations: map[string]string{
+							enableH2: "true",
+						},
+					},
+				},
+			},
+			expectedResult: false,
+		},
+		{
+			opts: &buildListenerFilterChainExtraOpts{
+				gatewayConfig: &config.Config{
+					Meta: config.Meta{
+						Annotations: map[string]string{
+							enableH2: "false",
+						},
+					},
+				},
+			},
+			expectedResult: true,
+		},
+		{
+			opts: &buildListenerFilterChainExtraOpts{
+				proxyConfig: &meshconfig.ProxyConfig{
+					DisableAlpnH2: true,
+				},
+			},
+			expectedResult: true,
+		},
+	}
+
+	for _, testCase := range cases {
+		t.Run("", func(t *testing.T) {
+			if shouldDisableH2(nil, testCase.opts) != testCase.expectedResult {
+				t.Fatal("The result of disable h2 must be same.")
+			}
+		})
 	}
 }
 

@@ -27,11 +27,26 @@ import (
 	"istio.io/api/networking/v1alpha3"
 	"istio.io/istio/pilot/pkg/model"
 	"istio.io/istio/pilot/pkg/networking/util"
+	"istio.io/pkg/log"
 )
 
 const (
 	FailoverPriorityLabelDefaultSeparator = '='
+	// Annotation applied to DS for extension of load balance.
+	AliIngressIstiodLoadBalanceAnnotation = "istiod.ingress.ali/loadBalance"
+
+	// The traffic sent to envoy will be forwarded to the upstream endpoint with the same unit.
+	sameUnit = "same-unit"
+
+	// The traffic sent to envoy will be forwarded to the upstream endpoint with the same site.
+	sameSite = "same-site"
 )
+
+// Added by ingress
+// IsExtensionLB return true if we have the extension load balance.
+func IsExtensionLB(lbType string) bool {
+	return lbType == sameUnit || lbType == sameSite
+}
 
 func GetLocalityLbSetting(
 	mesh *v1alpha3.LocalityLoadBalancerSetting,
@@ -85,6 +100,38 @@ func ApplyLocalityLBSetting(
 			return
 		}
 		applyLocalityFailover(locality, loadAssignment, localityLB.Failover)
+	}
+}
+
+func ApplyLocalityLBSettingWithExtension(
+	loadAssignment *endpoint.ClusterLoadAssignment,
+	wrappedLocalityLbEndpoints []*WrappedLocalityLbEndpoints,
+	locality *core.Locality,
+	proxyLabels map[string]string,
+	localityLB *v1alpha3.LocalityLoadBalancerSetting,
+	enableFailover bool,
+	extensionLBType string,
+) {
+	if localityLB == nil || loadAssignment == nil {
+		return
+	}
+
+	// one of Distribute or Failover settings can be applied.
+	if localityLB.GetDistribute() != nil {
+		applyLocalityWeight(locality, loadAssignment, localityLB.GetDistribute())
+		// Failover needs outlier detection, otherwise Envoy will never drop down to a lower priority.
+		// Do not apply default failover when locality LB is disabled.
+	} else if enableFailover && (localityLB.Enabled == nil || localityLB.Enabled.Value) {
+		if len(localityLB.FailoverPriority) > 0 {
+			applyPriorityFailover(loadAssignment, wrappedLocalityLbEndpoints, proxyLabels, localityLB.FailoverPriority)
+			return
+		}
+
+		if IsExtensionLB(extensionLBType) {
+			applyLocalityFailoverForExtensionLB(locality, loadAssignment, localityLB.GetFailover(), extensionLBType)
+		} else {
+			applyLocalityFailover(locality, loadAssignment, localityLB.GetFailover())
+		}
 	}
 }
 
@@ -317,4 +364,74 @@ func applyPriorityFailoverPerLocality(
 	}
 
 	return out
+}
+
+func LbPriorityForExtensionLB(proxyLocality, endpointsLocality *core.Locality, lbType string) int {
+	switch lbType {
+	case sameUnit:
+		if proxyLocality.GetRegion() == endpointsLocality.GetRegion() {
+			if proxyLocality.GetZone() == endpointsLocality.GetZone() {
+				return 0
+			}
+			return 1
+		}
+		return 2
+	case sameSite:
+		return util.LbPriority(proxyLocality, endpointsLocality)
+	default:
+		// Never happened.
+		return 0
+	}
+}
+
+func applyLocalityFailoverForExtensionLB(
+	locality *core.Locality,
+	loadAssignment *endpoint.ClusterLoadAssignment,
+	failover []*v1alpha3.LocalityLoadBalancerSetting_Failover,
+	lbType string) {
+	// key is priority, value is the index of the LocalityLbEndpoints in ClusterLoadAssignment
+	priorityMap := map[int][]int{}
+	log.Debugf("Apply extension load balance: %s", lbType)
+	// 1. calculate the LocalityLbEndpoints.Priority compared with proxy locality
+	for i, localityEndpoint := range loadAssignment.Endpoints {
+		// if lbType is same unit, only check region/zone/*
+		// if lbType is same site, follow the original logic.
+		// if region/zone/subZone all match, the priority is 0.
+		// if region/zone match, the priority is 1.
+		// if region matches, the priority is 2.
+		// if locality not match, the priority is 3.
+		priority := LbPriorityForExtensionLB(locality, localityEndpoint.Locality, lbType)
+		// region not match, apply failover settings when specified
+		if (lbType == sameUnit && priority == 2) || (lbType == sameSite && priority == 3) {
+			for _, failoverSetting := range failover {
+				if failoverSetting.From == locality.Region {
+					if localityEndpoint.Locality == nil || localityEndpoint.Locality.Region != failoverSetting.To {
+						// If not match failover, priority should be down.
+						priority = priority + 1
+					}
+					break
+				}
+			}
+		}
+		loadAssignment.Endpoints[i].Priority = uint32(priority)
+		priorityMap[priority] = append(priorityMap[priority], i)
+	}
+	// since Priorities should range from 0 (highest) to N (lowest) without skipping.
+	// 2. adjust the priorities in order
+	// 2.1 sort all priorities in increasing order.
+	priorities := []int{}
+	for priority := range priorityMap {
+		priorities = append(priorities, priority)
+	}
+	sort.Ints(priorities)
+	// 2.2 adjust LocalityLbEndpoints priority
+	// if the index and value of priorities array is not equal.
+	for i, priority := range priorities {
+		if i != priority {
+			// the LocalityLbEndpoints index in ClusterLoadAssignment.Endpoints
+			for _, index := range priorityMap[priority] {
+				loadAssignment.Endpoints[index].Priority = uint32(i)
+			}
+		}
+	}
 }

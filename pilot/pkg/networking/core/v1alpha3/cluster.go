@@ -49,6 +49,7 @@ import (
 	"istio.io/istio/pkg/security"
 	netutil "istio.io/istio/pkg/util/net"
 	"istio.io/istio/pkg/util/sets"
+	"istio.io/pkg/log"
 )
 
 // deltaConfigTypes are used to detect changes and trigger delta calculations. When config updates has ONLY entries
@@ -656,6 +657,10 @@ type buildClusterOpts struct {
 	serviceRegistry provider.ID
 	// Indicates if the destionationRule has a workloadSelector
 	isDrWithSelector bool
+
+	// Added by Ingress
+	tlsExtendParams *tlsAnnotationParams
+	// End Added
 }
 
 func applyTCPKeepalive(mesh *meshconfig.MeshConfig, c *cluster.Cluster, tcp *networking.ConnectionPoolSettings_TCPSettings) {
@@ -1016,6 +1021,94 @@ func getOrCreateIstioMetadata(cluster *cluster.Cluster) *structpb.Struct {
 	}
 	return cluster.Metadata.FilterMetadata[util.IstioMetadataKey]
 }
+
+// Added by Ingress
+
+// ApplyHealthChecks  would apply active health-check for backend cluster
+func applyHealthChecks(c *cluster.Cluster, healthChecks []*networking.HealthCheck) {
+	if len(healthChecks) == 0 {
+		return
+	}
+	clusterHealthChecks := convertHealthChecks(healthChecks)
+	c.HealthChecks = clusterHealthChecks
+	c.IgnoreHealthOnHostRemoval = true
+}
+
+const (
+	DefaultHealthyThreshold   = 3
+	DefaultUnhealthyThreshold = 3
+	DefaultNoTrafficInterval  = 60
+	DefaultInterval           = 15
+)
+
+// convertHealthChecks convert Health-check in istio model to envoy's HealthCheck
+func convertHealthChecks(healthChecks []*networking.HealthCheck) []*core.HealthCheck {
+	convertedHealthCheckers := make([]*core.HealthCheck, len(healthChecks))
+	for idx, healthCheck := range healthChecks {
+		if healthCheck.GetHealthChecker() == nil {
+			continue
+		}
+
+		convertedHealthCheck := core.HealthCheck{}
+		convertedHealthCheck.EventLogPath = healthCheck.GetEventLogPath()
+		convertedHealthCheck.AlwaysLogHealthCheckFailures = healthCheck.GetAlwaysLogHealthCheckFailures()
+		if healthCheck.GetNoTrafficInterval() != nil {
+			convertedHealthCheck.NoTrafficInterval = &durationpb.Duration{Seconds: healthCheck.GetNoTrafficInterval().GetSeconds()}
+		} else {
+			convertedHealthCheck.NoTrafficInterval = &durationpb.Duration{Seconds: DefaultNoTrafficInterval}
+		}
+		if healthCheck.GetInterval() != nil {
+			convertedHealthCheck.Interval = &durationpb.Duration{Seconds: healthCheck.GetInterval().GetSeconds()}
+		} else {
+			convertedHealthCheck.Interval = &durationpb.Duration{Seconds: DefaultInterval}
+		}
+		if healthCheck.GetTimeout() != nil {
+			convertedHealthCheck.Timeout = &durationpb.Duration{Seconds: healthCheck.GetTimeout().GetSeconds()}
+		}
+		if healthCheck.GetHealthyThreshold() != nil {
+			convertedHealthCheck.HealthyThreshold = &wrappers.UInt32Value{Value: healthCheck.GetHealthyThreshold().Value}
+		} else {
+			convertedHealthCheck.HealthyThreshold = &wrappers.UInt32Value{Value: DefaultHealthyThreshold}
+		}
+		if healthCheck.GetUnhealthyThreshold() != nil {
+			convertedHealthCheck.UnhealthyThreshold = &wrappers.UInt32Value{Value: healthCheck.GetUnhealthyThreshold().Value}
+		} else {
+			convertedHealthCheck.UnhealthyThreshold = &wrappers.UInt32Value{Value: DefaultUnhealthyThreshold}
+		}
+
+		switch healthCheck.GetHealthChecker().(type) {
+		case *networking.HealthCheck_HttpHealthCheck_:
+			convertedHealthCheck.HealthChecker = &core.HealthCheck_HttpHealthCheck_{
+				HttpHealthCheck: &core.HealthCheck_HttpHealthCheck{
+					Host:             healthCheck.GetHttpHealthCheck().GetHost(),
+					Path:             healthCheck.GetHttpHealthCheck().GetPath(),
+					ExpectedStatuses: convertExpectedStatus(healthCheck.GetHttpHealthCheck().GetExpectedStatuses()),
+				},
+			}
+		case *networking.HealthCheck_TcpHealthCheck_:
+			convertedHealthCheck.HealthChecker = &core.HealthCheck_TcpHealthCheck_{TcpHealthCheck: &core.HealthCheck_TcpHealthCheck{}}
+		default:
+			log.Errorf("Invalid HealthChecker type: %v, ignore it and continue", healthCheck)
+			continue
+		}
+
+		convertedHealthCheckers[idx] = &convertedHealthCheck
+	}
+	return convertedHealthCheckers
+}
+
+func convertExpectedStatus(expectedStatus []*networking.Int64Range) []*xdstype.Int64Range {
+	envoyExpectedStatus := make([]*xdstype.Int64Range, len(expectedStatus))
+	for idx, status := range expectedStatus {
+		envoyExpectedStatus[idx] = &xdstype.Int64Range{
+			Start: status.GetStart(),
+			End:   status.GetEnd(),
+		}
+	}
+	return envoyExpectedStatus
+}
+
+// End Added
 
 var HboneOrPlaintextSocket = []*cluster.Cluster_TransportSocketMatch{
 	hboneTransportSocket,

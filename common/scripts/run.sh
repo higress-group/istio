@@ -30,9 +30,12 @@ export FOR_BUILD_CONTAINER=1
 # shellcheck disable=SC1090,SC1091
 source "${WD}/setup_env.sh"
 
-
+HUB="${HUB:-istio}"
 MOUNT_SOURCE="${MOUNT_SOURCE:-${PWD}}"
+ENVOY_TAR_PATH="${ENVOY_TAR_PATH:-/home/package/envoy.tar.gz}"
 MOUNT_DEST="${MOUNT_DEST:-/work}"
+MOUNT_ROOT_SOURCE="${MOUNT_ROOT_SOURCE:-`cd $MOUNT_SOURCE/..;pwd`}"
+MOUNT_PACKAGE_SOURCE="${MOUNT_PACKAGE_SOURCE:-`cd $MOUNT_SOURCE/../package;pwd`}"
 
 read -ra DOCKER_RUN_OPTIONS <<< "${DOCKER_RUN_OPTIONS:-}"
 
@@ -52,7 +55,16 @@ read -ra DOCKER_RUN_OPTIONS <<< "${DOCKER_RUN_OPTIONS:-}"
     --env-file <(env | grep -v ${ENV_BLOCKLIST}) \
     -e IN_BUILD_CONTAINER=1 \
     -e TZ="${TIMEZONE:-$TZ}" \
+    -e GOPROXY="${GOPROXY}" \
+    -e HUB="${HUB}" \
+    -e ENVOY_TAR_PATH="${ENVOY_TAR_PATH}" \
+    --mount "type=bind,source=${MOUNT_PACKAGE_SOURCE},destination=/home/package" \
     --mount "type=bind,source=${MOUNT_SOURCE},destination=/work" \
+    --mount "type=bind,source=${MOUNT_ROOT_SOURCE}/..,destination=/parent" \
+    --mount "type=bind,source=${MOUNT_ROOT_SOURCE}/go-control-plane,destination=/go-control-plane" \
+    --mount "type=bind,source=${MOUNT_ROOT_SOURCE}/api,destination=/api" \
+    --mount "type=bind,source=${MOUNT_ROOT_SOURCE}/pkg,destination=/pkg" \
+    --mount "type=bind,source=${MOUNT_ROOT_SOURCE}/client-go,destination=/client-go" \
     --mount "type=volume,source=go,destination=/go" \
     --mount "type=volume,source=gocache,destination=/gocache" \
     --mount "type=volume,source=cache,destination=/home/.cache" \

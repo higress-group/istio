@@ -187,6 +187,10 @@ func addFlags(c *cobra.Command) {
 	c.PersistentFlags().IntVar(&serverArgs.RegistryOptions.KubeOptions.KubernetesAPIBurst, "kubernetesApiBurst", 160,
 		"Maximum burst for throttle when communicating with the kubernetes API")
 
+	// Added by ingress
+	// Support for local time format of istio log
+	c.PersistentFlags().BoolVar(&loggingOptions.LocalTime, "localTime", false, "Enable local time format for istio log.")
+
 	// Attach the Istio logging options to the command.
 	loggingOptions.AttachCobraFlags(c)
 

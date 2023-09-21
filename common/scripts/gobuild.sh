@@ -23,6 +23,8 @@
 
 # This script builds and version stamps the output
 
+export GOPROXY=${GOPROXY:-"https://proxy.golang.com.cn,direct"}
+
 VERBOSE=${VERBOSE:-"0"}
 V=""
 if [[ "${VERBOSE}" == "1" ]];then

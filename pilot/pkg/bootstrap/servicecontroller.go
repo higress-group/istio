@@ -48,10 +48,15 @@ func (s *Server) initServiceControllers(args *PilotArgs) error {
 		registered[serviceRegistry] = true
 		log.Infof("Adding %s registry adapter", serviceRegistry)
 		switch serviceRegistry {
+		case provider.RemoteKubernetes:
+			// Just for 1.8 compatibility.
+			fallthrough
 		case provider.Kubernetes:
 			if err := s.initKubeRegistry(args); err != nil {
 				return err
 			}
+		case provider.LocalConfig:
+			// Do nothing, just avoid jump default condition.
 		default:
 			return fmt.Errorf("service registry %s is not supported", r)
 		}

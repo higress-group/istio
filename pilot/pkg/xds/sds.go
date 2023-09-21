@@ -176,6 +176,15 @@ func (s *SecretGen) generate(sr SecretResource, configClusterSecrets, proxyClust
 	switch sr.ResourceType {
 	case credentials.KubernetesGatewaySecretType:
 		secretController = configClusterSecrets
+	case credentials.KubernetesIngressSecretType:
+		// Added by ingress
+		var err error
+		if secretController, err = s.secrets.ForCluster(sr.Cluster); err != nil {
+			log.Warnf("This is an unknown cluster %s, err %v", sr.Cluster, err)
+			pilotSDSCertificateErrors.Increment()
+			break
+		}
+		// End added by ingress
 	default:
 		secretController = proxyClusterSecrets
 	}

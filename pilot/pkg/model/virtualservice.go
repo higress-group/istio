@@ -320,6 +320,12 @@ func mergeHTTPRoute(root *networking.HTTPRoute, delegate *networking.HTTPRoute) 
 	if delegate.Headers == nil {
 		delegate.Headers = root.Headers
 	}
+	if delegate.DirectResponse == nil {
+		delegate.DirectResponse = root.DirectResponse
+	}
+	if delegate.InternalActiveRedirect == nil {
+		delegate.InternalActiveRedirect = root.InternalActiveRedirect
+	}
 	return delegate
 }
 

@@ -25,7 +25,22 @@ func hasKubeRegistry(registries []string) bool {
 		if provider.ID(r) == provider.Kubernetes {
 			return true
 		}
+
+		if provider.ID(r) == provider.RemoteKubernetes {
+			return true
+		}
 	}
+
+	return false
+}
+
+func hasLocalConfigRegistry(registries []string) bool {
+	for _, r := range registries {
+		if provider.ID(r) == provider.LocalConfig {
+			return true
+		}
+	}
+
 	return false
 }
 

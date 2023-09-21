@@ -249,6 +249,22 @@ func (pathGenerator) principal(key, value string, forTCP bool, _ bool) (*rbacpb.
 	return nil, fmt.Errorf("unimplemented")
 }
 
+// Added by ingress
+type extensionPathGenerator struct{}
+
+func (e extensionPathGenerator) permission(key, value string, forTCP bool) (*rbacpb.Permission, error) {
+	if forTCP {
+		return nil, fmt.Errorf("%q is HTTP only", key)
+	}
+
+	m := matcher.ExtensionPathMatcher(value)
+	return permissionPath(m), nil
+}
+
+func (e extensionPathGenerator) principal(_, _ string, _ bool) (*rbacpb.Principal, error) {
+	return nil, fmt.Errorf("unimplemented")
+}
+
 type methodGenerator struct{}
 
 func (methodGenerator) permission(key, value string, forTCP bool) (*rbacpb.Permission, error) {

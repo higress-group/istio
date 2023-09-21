@@ -3747,6 +3747,151 @@ func TestApplyDestinationRuleOSCACert(t *testing.T) {
 	}
 }
 
+// Added by Ingress
+func TestBuildUpstreamClusterTLSContextWithExtraTlsParams(t *testing.T) {
+	rootCert := "path/to/cacert"
+	testCases := []struct {
+		name   string
+		opts   *buildClusterOpts
+		tls    *networking.ClientTLSSettings
+		result expectedResult
+	}{
+		{
+			name: "tls mode SIMPLE, with untrusted",
+			opts: &buildClusterOpts{
+				mutable: &MutableCluster{
+					cluster: &cluster.Cluster{
+						Name: "test-cluster",
+					},
+				},
+				tlsExtendParams: &tlsAnnotationParams{
+					tlsMaxParameter: tls.TlsParameters_TLSv1_3.Enum(),
+					tlsMinParameter: tls.TlsParameters_TLSv1_3.Enum(),
+					cipherSuites:    []string{"TLS_SM4_GCM_SM3", "TLS_SM4_CCM_SM3"},
+					trustedChain:    tls.CertificateValidationContext_ACCEPT_UNTRUSTED.Enum(),
+				},
+			},
+			tls: &networking.ClientTLSSettings{
+				Mode:            networking.ClientTLSSettings_SIMPLE,
+				SubjectAltNames: []string{"SAN"},
+				Sni:             "some-sni.com",
+			},
+			result: expectedResult{
+				tlsContext: &tls.UpstreamTlsContext{
+					CommonTlsContext: &tls.CommonTlsContext{
+						ValidationContextType: &tls.CommonTlsContext_ValidationContext{
+							ValidationContext: &tls.CertificateValidationContext{
+								TrustChainVerification: *tls.CertificateValidationContext_ACCEPT_UNTRUSTED.Enum(),
+							},
+						},
+						TlsParams: &tls.TlsParameters{
+							TlsMaximumProtocolVersion: tls.TlsParameters_TLSv1_3,
+							TlsMinimumProtocolVersion: tls.TlsParameters_TLSv1_3,
+							CipherSuites:              []string{"TLS_SM4_GCM_SM3", "TLS_SM4_CCM_SM3"},
+						},
+					},
+					Sni: "some-sni.com",
+				},
+				err: nil,
+			},
+		},
+		{
+			name: "tls mode SIMPLE, with certs specified in tls",
+			opts: &buildClusterOpts{
+				mutable: &MutableCluster{
+					cluster: &cluster.Cluster{
+						Name: "test-cluster",
+					},
+				},
+				tlsExtendParams: &tlsAnnotationParams{
+					trustedChain: tls.CertificateValidationContext_ACCEPT_UNTRUSTED.Enum(),
+				},
+			},
+			tls: &networking.ClientTLSSettings{
+				Mode:            networking.ClientTLSSettings_SIMPLE,
+				CaCertificates:  rootCert,
+				SubjectAltNames: []string{"SAN"},
+				Sni:             "some-sni.com",
+			},
+			result: expectedResult{
+				tlsContext: &tls.UpstreamTlsContext{
+					CommonTlsContext: &tls.CommonTlsContext{
+						TlsParams: &tls.TlsParameters{},
+						ValidationContextType: &tls.CommonTlsContext_CombinedValidationContext{
+							CombinedValidationContext: &tls.CommonTlsContext_CombinedCertificateValidationContext{
+								DefaultValidationContext: &tls.CertificateValidationContext{MatchSubjectAltNames: util.StringToExactMatch([]string{"SAN"}), TrustChainVerification: *tls.CertificateValidationContext_ACCEPT_UNTRUSTED.Enum()},
+								ValidationContextSdsSecretConfig: &tls.SdsSecretConfig{
+									Name: fmt.Sprintf("file-root:%s", rootCert),
+									SdsConfig: &core.ConfigSource{
+										ConfigSourceSpecifier: &core.ConfigSource_ApiConfigSource{
+											ApiConfigSource: &core.ApiConfigSource{
+												ApiType:             core.ApiConfigSource_GRPC,
+												TransportApiVersion: core.ApiVersion_V3,
+												GrpcServices: []*core.GrpcService{
+													{
+														TargetSpecifier: &core.GrpcService_EnvoyGrpc_{
+															EnvoyGrpc: &core.GrpcService_EnvoyGrpc{ClusterName: "sds-grpc"},
+														},
+													},
+												},
+												SetNodeOnFirstMessageOnly: true,
+											},
+										},
+										ResourceApiVersion: core.ApiVersion_V3,
+									},
+								},
+							},
+						},
+					},
+					Sni: "some-sni.com",
+				},
+				err: nil,
+			},
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			proxy := newGatewayProxy()
+			cb := NewClusterBuilder(proxy, nil, model.DisabledCache{})
+			ret, err := cb.buildUpstreamClusterTLSContext(tc.opts, tc.tls)
+			if err != nil && tc.result.err == nil || err == nil && tc.result.err != nil {
+				t.Errorf("expecting:\n err=%v but got err=%v", tc.result.err, err)
+			} else if diff := cmp.Diff(tc.result.tlsContext, ret, protocmp.Transform()); diff != "" {
+				t.Errorf("got diff: `%v", diff)
+			}
+		})
+	}
+}
+
+func TestAnnotationToTlsParams(t *testing.T) {
+	params := getTlsParamsFromAnnotation(map[string]string{
+		"istiod.ingress.ali/tls-cipher-suites": "TLS_SM4_GCM_SM3,TLS_SM4_CCM_SM3",
+		"istiod.ingress.ali/tls-min-version":   "TLSv1_3",
+		"istiod.ingress.ali/tls-max-version":   "TLSv1_3",
+		"istiod.ingress.ali/tls-trusted-chain": "ACCEPT_UNTRUSTED",
+	})
+	expectedParams := &tlsAnnotationParams{
+		tlsMaxParameter: tls.TlsParameters_TLSv1_3.Enum(),
+		tlsMinParameter: tls.TlsParameters_TLSv1_3.Enum(),
+		trustedChain:    tls.CertificateValidationContext_ACCEPT_UNTRUSTED.Enum(),
+		cipherSuites:    []string{"TLS_SM4_GCM_SM3", "TLS_SM4_CCM_SM3"},
+	}
+	if diff := cmp.Diff(params.cipherSuites, expectedParams.cipherSuites); diff != "" {
+		t.Errorf("got ciphersuit diff: %v", diff)
+	}
+	if diff := cmp.Diff(params.tlsMaxParameter, expectedParams.tlsMaxParameter); diff != "" {
+		t.Errorf("got maxParameter diff: %v", diff)
+	}
+	if diff := cmp.Diff(params.tlsMinParameter, expectedParams.tlsMinParameter); diff != "" {
+		t.Errorf("got minParameter diff: %v", diff)
+	}
+	if diff := cmp.Diff(params.trustedChain, expectedParams.trustedChain); diff != "" {
+		t.Errorf("got trustedchain diff: %v", diff)
+	}
+}
+
+// End Added
+
 func TestApplyTCPKeepalive(t *testing.T) {
 	cases := []struct {
 		name           string

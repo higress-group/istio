@@ -2659,6 +2659,96 @@ func TestVerifyCertAtClient(t *testing.T) {
 	}
 }
 
+func TestHTTPHealthCheck(t *testing.T) {
+	checkClusters := []string{"outbound|8080||*.example.org"}
+	healthChecks := []*networking.HealthCheck{
+		{
+			Interval:                     &types.Duration{Seconds: 30},
+			AlwaysLogHealthCheckFailures: true,
+			Timeout:                      &types.Duration{Seconds: 5},
+			HealthChecker: &networking.HealthCheck_HttpHealthCheck_{HttpHealthCheck: &networking.HealthCheck_HttpHealthCheck{
+				Host: "example.org",
+				Path: "/health_check",
+				ExpectedStatuses: []*networking.Int64Range{
+					&networking.Int64Range{Start: 200, End: 299},
+				},
+			}},
+		},
+	}
+
+	t.Run("testHttpHealthCheck", func(t *testing.T) {
+		g := NewWithT(t)
+		clusters := xdstest.ExtractClusters(buildTestClusters(clusterTest{
+			t:               t,
+			serviceHostname: "*.example.org",
+			nodeType:        model.SidecarProxy,
+			mesh:            testMesh(),
+			destRule: &networking.DestinationRule{
+				Host: "*.example.org",
+				TrafficPolicy: &networking.TrafficPolicy{
+					HealthChecks: healthChecks,
+				},
+			},
+		}))
+
+		for _, c := range checkClusters {
+			cluster := clusters[c]
+			if cluster == nil {
+				t.Fatalf("cluster %v not found", c)
+			}
+			clusterHealthChecks := cluster.GetHealthChecks()
+			g.Expect(len(clusterHealthChecks), len(healthChecks))
+			healthCheck := healthChecks[0]
+			clusterHealthCheck := clusterHealthChecks[0]
+			g.Expect(healthCheck.AlwaysLogHealthCheckFailures, clusterHealthCheck.AlwaysLogHealthCheckFailures)
+			g.Expect(healthCheck.GetInterval().GetSeconds(), clusterHealthCheck.GetInterval().GetSeconds())
+			g.Expect(healthCheck.GetNoTrafficInterval().GetSeconds(), clusterHealthCheck.GetNoTrafficHealthyInterval().GetSeconds())
+		}
+	})
+}
+
+func TestTCPHealthCheck(t *testing.T) {
+	checkClusters := []string{"outbound|8080||*.example.org"}
+	healthChecks := []*networking.HealthCheck{
+		{
+			Interval:                     &types.Duration{Seconds: 30},
+			AlwaysLogHealthCheckFailures: true,
+			Timeout:                      &types.Duration{Seconds: 5},
+			HealthChecker: &networking.HealthCheck_TcpHealthCheck_{
+				TcpHealthCheck: &networking.HealthCheck_TcpHealthCheck{},
+			},
+		},
+	}
+
+	t.Run("testTcpHealthCheck", func(t *testing.T) {
+		g := NewWithT(t)
+		clusters := xdstest.ExtractClusters(buildTestClusters(clusterTest{
+			t:               t,
+			serviceHostname: "*.example.org",
+			nodeType:        model.SidecarProxy,
+			mesh:            testMesh(),
+			destRule: &networking.DestinationRule{
+				Host: "*.example.org",
+				TrafficPolicy: &networking.TrafficPolicy{
+					HealthChecks: healthChecks,
+				},
+			},
+		}))
+
+		for _, c := range checkClusters {
+			cluster := clusters[c]
+			if cluster == nil {
+				t.Fatalf("cluster %v not found", c)
+			}
+			clusterHealthChecks := cluster.GetHealthChecks()
+			g.Expect(len(clusterHealthChecks), len(healthChecks))
+			clusterHealthCheck := clusterHealthChecks[0]
+			g.Expect(clusterHealthCheck.GetTcpHealthCheck()).NotTo(BeNil())
+
+		}
+	})
+}
+
 func TestBuildDeltaClusters(t *testing.T) {
 	g := NewWithT(t)
 

@@ -27,9 +27,13 @@ var _ model.XdsResourceGenerator = &RdsGenerator{}
 
 // Map of all configs that do not impact RDS
 var skippedRdsConfigs = map[kind.Kind]struct{}{
-	kind.WorkloadEntry:         {},
-	kind.WorkloadGroup:         {},
-	kind.AuthorizationPolicy:   {},
+	kind.WorkloadEntry: {},
+	kind.WorkloadGroup: {},
+	// Delete by ingress
+	// When the authn and authz filter changes, we should
+	// rebuild rds to populate host-scoped and route-scoped filters.
+	// gvk.AuthorizationPolicy:   {},
+	// End delete by ingress
 	kind.RequestAuthentication: {},
 	kind.PeerAuthentication:    {},
 	kind.Secret:                {},

@@ -16,6 +16,7 @@ package model
 
 import (
 	"fmt"
+	"istio.io/istio/pilot/pkg/security/authz/matcher"
 	"strings"
 
 	rbacpb "github.com/envoyproxy/go-control-plane/envoy/config/rbac/v3"
@@ -132,6 +133,11 @@ func New(r *authzpb.Rule) (*Model, error) {
 		if o := to.Operation; o != nil {
 			merged.insertFront(destPortGenerator{}, attrDestPort, o.Ports, o.NotPorts)
 			merged.insertFront(pathGenerator{}, pathMatcher, o.Paths, o.NotPaths)
+			// Added by ingress
+			if len(o.Paths) == 0 && len(o.NotPaths) == 0 {
+				merged.insertFront(extensionPathGenerator{}, pathMatcher, matcher.StringMatchToString(o.ExtensionPaths), matcher.StringMatchToString(o.ExtensionNotPaths))
+			}
+			// End added by ingress
 			merged.insertFront(methodGenerator{}, methodHeader, o.Methods, o.NotMethods)
 			merged.insertFront(hostGenerator{}, hostHeader, o.Hosts, o.NotHosts)
 		}

@@ -1105,3 +1105,122 @@ func buildWrappedLocalityLbEndpoints() []*WrappedLocalityLbEndpoints {
 		},
 	}
 }
+
+func TestIsExtensionLB(t *testing.T) {
+	testcases := []struct {
+		name   string
+		lbType string
+		expect bool
+	}{
+		{
+			name:   "same unit",
+			lbType: sameUnit,
+			expect: true,
+		},
+		{
+			name:   "same site",
+			lbType: sameSite,
+			expect: true,
+		},
+		{
+			name:   "unsupported type",
+			lbType: "same-region",
+			expect: false,
+		},
+		{
+			name:   "not exist",
+			lbType: "",
+			expect: false,
+		},
+	}
+	for _, c := range testcases {
+		t.Run(c.name, func(t *testing.T) {
+			g := NewGomegaWithT(t)
+			g.Expect(IsExtensionLB(c.lbType)).To(Equal(c.expect))
+		})
+	}
+}
+
+func buildSameRegionClusterWithNilLocalities() *cluster.Cluster {
+	return &cluster.Cluster{
+		Name: "outbound|8080||test.example.org",
+		LoadAssignment: &endpoint.ClusterLoadAssignment{
+			ClusterName: "outbound|8080||test.example.org",
+			Endpoints: []*endpoint.LocalityLbEndpoints{
+				{
+					Locality: &core.Locality{
+						Region:  "region",
+						Zone:    "zone1",
+						SubZone: "subzone1",
+					},
+				},
+				{},
+				{
+					Locality: &core.Locality{
+						Region:  "region",
+						Zone:    "zone1",
+						SubZone: "subzone2",
+					},
+				},
+				{
+					Locality: &core.Locality{
+						Region:  "region",
+						Zone:    "zone2",
+						SubZone: "subzone1",
+					},
+				},
+				{
+					Locality: &core.Locality{
+						Region:  "region",
+						Zone:    "zone2",
+						SubZone: "subzone2",
+					},
+				},
+			},
+		},
+	}
+}
+
+func TestApplyLocalityFailoverForExtensionLB(t *testing.T) {
+	locality := &core.Locality{
+		Region:  "region",
+		Zone:    "zone1",
+		SubZone: "subzone1",
+	}
+	t.Run("Same unit local balance type.", func(t *testing.T) {
+		c := buildSameRegionClusterWithNilLocalities()
+		applyLocalityFailoverForExtensionLB(locality, c.LoadAssignment, nil, sameUnit)
+		g := NewGomegaWithT(t)
+		for _, localityEndpoint := range c.LoadAssignment.Endpoints {
+			if localityEndpoint.Locality == nil {
+				g.Expect(localityEndpoint.Priority).To(Equal(uint32(2)))
+			} else if localityEndpoint.Locality.Region == locality.Region {
+				if localityEndpoint.Locality.Zone == locality.Zone {
+					g.Expect(localityEndpoint.Priority).To(Equal(uint32(0)))
+					continue
+				}
+				g.Expect(localityEndpoint.Priority).To(Equal(uint32(1)))
+			}
+		}
+	})
+	t.Run("Same site local balance type.", func(t *testing.T) {
+		c := buildSameRegionClusterWithNilLocalities()
+		applyLocalityFailoverForExtensionLB(locality, c.LoadAssignment, nil, sameSite)
+		g := NewGomegaWithT(t)
+		for _, localityEndpoint := range c.LoadAssignment.Endpoints {
+			if localityEndpoint.Locality == nil {
+				g.Expect(localityEndpoint.Priority).To(Equal(uint32(3)))
+			} else if localityEndpoint.Locality.Region == locality.Region {
+				if localityEndpoint.Locality.Zone == locality.Zone {
+					if localityEndpoint.Locality.SubZone == locality.SubZone {
+						g.Expect(localityEndpoint.Priority).To(Equal(uint32(0)))
+						continue
+					}
+					g.Expect(localityEndpoint.Priority).To(Equal(uint32(1)))
+					continue
+				}
+				g.Expect(localityEndpoint.Priority).To(Equal(uint32(2)))
+			}
+		}
+	})
+}

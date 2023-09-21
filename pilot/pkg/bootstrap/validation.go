@@ -19,11 +19,18 @@ import (
 	"istio.io/istio/pkg/config/schema/collections"
 	"istio.io/istio/pkg/webhooks/validation/controller"
 	"istio.io/istio/pkg/webhooks/validation/server"
+	"istio.io/pkg/env"
 	"istio.io/pkg/log"
 )
 
+var validationEnabled = env.RegisterBoolVar("VALIDATION_ENABLED", true, "Enable config validation handler.")
+
 func (s *Server) initConfigValidation(args *PilotArgs) error {
 	if s.kubeClient == nil {
+		return nil
+	}
+
+	if !validationEnabled.Get() {
 		return nil
 	}
 

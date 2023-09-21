@@ -271,6 +271,14 @@ type PushContext struct {
 	InitDone        atomic.Bool
 	initializeMutex sync.Mutex
 	ambientIndex    AmbientIndexes
+
+	// Added by ingress
+	AllVirtualServices  []config.Config
+	AllDestinationRules []config.Config
+	AllEnvoyFilters     []config.Config
+	AllGateways         []config.Config
+	AllWasmplugins      []config.Config
+	// End added by ingress
 }
 
 type consolidatedDestRules struct {
@@ -1472,6 +1480,13 @@ func (ps *PushContext) initVirtualServices(env *Environment) {
 
 	virtualServices := env.List(gvk.VirtualService, NamespaceAll)
 
+	// Added by ingress
+	if env.MCPMode {
+		ps.AllVirtualServices = virtualServices
+		return
+	}
+	// End added by ingress
+
 	// values returned from ConfigStore.List are immutable.
 	// Therefore, we make a copy
 	vservices := make([]config.Config, len(virtualServices))
@@ -1479,6 +1494,10 @@ func (ps *PushContext) initVirtualServices(env *Environment) {
 	for i := range vservices {
 		vservices[i] = virtualServices[i].DeepCopy()
 	}
+
+	// Added by ingress
+	vservices = virtualServiceFilter(vservices)
+	// End added by ingress
 
 	totalVirtualServices.Record(float64(len(virtualServices)))
 
@@ -1668,12 +1687,21 @@ func (ps *PushContext) initSidecarScopes(env *Environment) {
 func (ps *PushContext) initDestinationRules(env *Environment) {
 	configs := env.List(gvk.DestinationRule, NamespaceAll)
 
+	// Added by ingress
+	if env.MCPMode {
+		ps.AllDestinationRules = configs
+		return
+	}
+	// End added by ingress
+
 	// values returned from ConfigStore.List are immutable.
 	// Therefore, we make a copy
 	destRules := make([]config.Config, len(configs))
 	for i := range destRules {
 		destRules[i] = configs[i]
 	}
+
+	destRules = destinationFilter(destRules)
 
 	ps.setDestinationRules(destRules)
 }
@@ -1811,6 +1839,13 @@ func (ps *PushContext) initProxyConfigs(env *Environment) {
 func (ps *PushContext) initWasmPlugins(env *Environment) {
 	wasmplugins := env.List(gvk.WasmPlugin, NamespaceAll)
 
+	// Added by ingress
+	if env.MCPMode {
+		ps.AllWasmplugins = wasmplugins
+		return
+	}
+	// End added by ingress
+
 	sortConfigByCreationTime(wasmplugins)
 	ps.wasmPluginsByNamespace = map[string][]*WasmPluginWrapper{}
 	for _, plugin := range wasmplugins {
@@ -1874,6 +1909,13 @@ func (ps *PushContext) WasmPluginsByListenerInfo(proxy *Proxy, info WasmPluginLi
 // pre computes envoy filters per namespace
 func (ps *PushContext) initEnvoyFilters(env *Environment) {
 	envoyFilterConfigs := env.List(gvk.EnvoyFilter, NamespaceAll)
+
+	// Added by ingress
+	if env.MCPMode {
+		ps.AllEnvoyFilters = envoyFilterConfigs
+		return
+	}
+	// End added by ingress
 
 	sort.Slice(envoyFilterConfigs, func(i, j int) bool {
 		ifilter := envoyFilterConfigs[i].Spec.(*networking.EnvoyFilter)
@@ -1969,6 +2011,24 @@ func (ps *PushContext) HasEnvoyFilters(name, namespace string) bool {
 // pre computes gateways per namespace
 func (ps *PushContext) initGateways(env *Environment) {
 	gatewayConfigs := env.List(gvk.Gateway, NamespaceAll)
+
+	// Added by ingress
+	if env.MCPMode {
+		ps.AllGateways = gatewayConfigs
+		return
+	}
+	// End added by ingress
+
+	// Added by ingress
+	// values returned from ConfigStore.List are immutable.
+	// Therefore, we make a copy
+	gateways := make([]config.Config, len(gatewayConfigs))
+
+	for i := range gateways {
+		gateways[i] = gatewayConfigs[i].DeepCopy()
+	}
+	gatewayConfigs = gatewayFilter(gateways)
+	// End added by ingress
 
 	sortConfigByCreationTime(gatewayConfigs)
 

@@ -122,6 +122,15 @@ func (b *EndpointBuilder) Type() string {
 	return model.EDSType
 }
 
+// Added by ingress
+// AnnotationsOfDestinationRule returns the annotation map of DR.
+func (b EndpointBuilder) AnnotationsOfDestinationRule() map[string]string {
+	if b.destinationRule == nil || b.destinationRule.Annotations == nil {
+		return map[string]string{}
+	}
+	return b.destinationRule.Annotations
+}
+
 // Key provides the eds cache key and should include any information that could change the way endpoints are generated.
 func (b *EndpointBuilder) Key() any {
 	// nolint: gosec

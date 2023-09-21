@@ -15,9 +15,12 @@
 package matcher
 
 import (
+	"fmt"
 	"strings"
 
 	matcher "github.com/envoyproxy/go-control-plane/envoy/type/matcher/v3"
+
+	authz "istio.io/api/security/v1beta1"
 )
 
 // StringMatcher creates a string matcher for v.
@@ -67,4 +70,60 @@ func StringMatcherWithPrefix(v, prefix string) *matcher.StringMatcher {
 			},
 		}
 	}
+}
+
+// Added by ingress
+const (
+	Exact  = "exact"
+	Prefix = "prefix"
+	Regex  = "regex"
+)
+
+// ExtensionStringMatcher creates a string matcher for v.
+func ExtensionStringMatcher(v string) *matcher.StringMatcher {
+	parts := strings.SplitN(v, "|", 2)
+	switch parts[0] {
+	case Prefix:
+		return &matcher.StringMatcher{
+			MatchPattern: &matcher.StringMatcher_Prefix{
+				Prefix: parts[1],
+			},
+		}
+	case Regex:
+		return &matcher.StringMatcher{
+			MatchPattern: &matcher.StringMatcher_SafeRegex{
+				SafeRegex: &matcher.RegexMatcher{
+					EngineType: &matcher.RegexMatcher_GoogleRe2{
+						GoogleRe2: &matcher.RegexMatcher_GoogleRE2{},
+					},
+					Regex: parts[1],
+				},
+			},
+		}
+	default:
+		return &matcher.StringMatcher{
+			MatchPattern: &matcher.StringMatcher_Exact{
+				Exact: parts[1],
+			},
+		}
+	}
+}
+
+// StringMatchToString convert struct string match to string
+// Exact: /app/test -> exact|/app/test
+// Prefix: /app -> prefix|/app
+// Regex: /app/(.*)/test -> regex|/app/(.*)/test
+func StringMatchToString(stringMatch []*authz.StringMatch) []string {
+	var result []string
+	for _, match := range stringMatch {
+		switch match.MatchType.(type) {
+		case *authz.StringMatch_Exact:
+			result = append(result, fmt.Sprintf("%s|%s", Exact, match.GetExact()))
+		case *authz.StringMatch_Prefix:
+			result = append(result, fmt.Sprintf("%s|%s", Prefix, strings.TrimSuffix(match.GetPrefix(), "*")))
+		case *authz.StringMatch_Regex:
+			result = append(result, fmt.Sprintf("%s|%s", Regex, match.GetRegex()))
+		}
+	}
+	return result
 }

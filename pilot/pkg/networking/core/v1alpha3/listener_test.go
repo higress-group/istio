@@ -837,8 +837,8 @@ func TestInboundHTTPListenerConfig(t *testing.T) {
 							TotalMatch: true,
 							Port:       8080,
 							HTTPFilters: []string{
-								xdsfilters.MxFilterName, xdsfilters.GrpcStats.Name, xdsfilters.Fault.Name,
-								xdsfilters.Cors.Name, xdsfilters.Router.Name,
+								xdsfilters.Cors.Name, xdsfilters.MxFilterName, xdsfilters.GrpcStats.Name,
+								xdsfilters.Fault.Name, xdsfilters.Router.Name,
 							},
 							ValidateHCM: func(t test.Failer, hcm *hcm.HttpConnectionManager) {
 								assert.Equal(t, "istio-envoy", hcm.GetServerName(), "server name")

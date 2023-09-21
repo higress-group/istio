@@ -397,6 +397,11 @@ func FileAccessLogFromMeshConfig(path string, mesh *meshconfig.MeshConfig) *acce
 	al := &accesslog.AccessLog{
 		Name:       wellknown.FileAccessLog,
 		ConfigType: &accesslog.AccessLog_TypedConfig{TypedConfig: protoconv.MessageToAny(fl)},
+		// Added by ingress
+		Filter: &accesslog.AccessLogFilter{
+			FilterSpecifier: &accesslog.AccessLogFilter_NotHealthCheckFilter{},
+		},
+		// End by ingress
 	}
 
 	return al

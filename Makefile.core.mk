@@ -118,8 +118,13 @@ endif
 # For dockerx builds, allow HUBS which is a space seperated list of hubs. Default to HUB.
 HUBS ?= $(HUB)
 
+export PARENT_GIT_TAG
+export PARENT_GIT_REVISION
 # If tag not explicitly set in users' .istiorc.mk or command line, default to the git sha.
-TAG ?= $(shell git rev-parse --verify HEAD)
+TAG ?= $(PARENT_GIT_REVISION)
+ifeq ($(TAG),)
+  TAG:=$(shell git rev-parse --verify HEAD)
+endif
 ifeq ($(TAG),)
   $(error "TAG cannot be empty")
 endif
@@ -203,20 +208,22 @@ endif
 # We split the binaries into "agent" binaries and standard ones. This corresponds to build "agent".
 # This allows conditional compilation to avoid pulling in costly dependencies to the agent, such as XDS and k8s.
 AGENT_BINARIES:=./pilot/cmd/pilot-agent
-STANDARD_BINARIES:=./istioctl/cmd/istioctl \
-  ./pilot/cmd/pilot-discovery \
-  ./pkg/test/echo/cmd/client \
-  ./pkg/test/echo/cmd/server \
-  ./samples/extauthz/cmd/extauthz \
-  ./operator/cmd/operator \
-  ./tools/bug-report
+#STANDARD_BINARIES:=./istioctl/cmd/istioctl \
+#  ./pilot/cmd/pilot-discovery \
+#  ./pkg/test/echo/cmd/client \
+#  ./pkg/test/echo/cmd/server \
+#  ./samples/extauthz/cmd/extauthz \
+#  ./operator/cmd/operator \
+#  ./tools/bug-report
+STANDARD_BINARIES:=./pilot/cmd/pilot-discovery
 
 # These are binaries that require Linux to build, and should
 # be skipped on other platforms. Notably this includes the current Linux-only Istio CNI plugin
 LINUX_AGENT_BINARIES:=./cni/cmd/istio-cni \
   ./cni/cmd/install-cni
 
-BINARIES:=$(STANDARD_BINARIES) $(AGENT_BINARIES) $(LINUX_AGENT_BINARIES)
+#BINARIES:=$(STANDARD_BINARIES) $(AGENT_BINARIES) $(LINUX_AGENT_BINARIES)
+BINARIES:=$(STANDARD_BINARIES) $(AGENT_BINARIES)
 
 # List of binaries included in releases
 RELEASE_BINARIES:=pilot-discovery pilot-agent istioctl bug-report

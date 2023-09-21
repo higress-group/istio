@@ -185,9 +185,9 @@ func (m *Multicluster) ClusterDeleted(clusterID cluster.ID) error {
 	m.m.Lock()
 	m.deleteCluster(clusterID)
 	m.m.Unlock()
-	if m.XDSUpdater != nil {
-		m.XDSUpdater.ConfigUpdate(&model.PushRequest{Full: true, Reason: []model.TriggerReason{model.ClusterUpdate}})
-	}
+	//if m.XDSUpdater != nil {
+	//	m.XDSUpdater.ConfigUpdate(&model.PushRequest{Full: true, Reason: []model.TriggerReason{model.ClusterUpdate}})
+	//}
 	return nil
 }
 
@@ -286,9 +286,9 @@ func (m *Multicluster) initializeCluster(cluster *multicluster.Cluster, kubeCont
 		// Block server exit on graceful termination of the leader controller.
 		m.s.RunComponentAsyncAndWait(func(_ <-chan struct{}) error {
 			log.Infof("joining leader-election for %s in %s on cluster %s",
-				leaderelection.NamespaceController, options.SystemNamespace, options.ClusterID)
+				leaderelection.ClusterScopedNamespaceController, options.SystemNamespace, options.ClusterID)
 			election := leaderelection.
-				NewLeaderElectionMulticluster(options.SystemNamespace, m.serverID, leaderelection.NamespaceController, m.revision, !configCluster, client).
+				NewLeaderElectionMulticluster(options.SystemNamespace, m.serverID, leaderelection.ClusterScopedNamespaceController, m.revision, !configCluster, client).
 				AddRunFunction(func(leaderStop <-chan struct{}) {
 					log.Infof("starting namespace controller for cluster %s", cluster.ID)
 					nc := NewNamespaceController(client, m.caBundleWatcher, discoveryNamespacesFilter)

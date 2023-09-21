@@ -360,6 +360,8 @@ func (lb *ListenerBuilder) buildHTTPConnectionManager(httpOpts *httpListenerOpts
 	routerFilterCtx, reqIDExtensionCtx := configureTracing(lb.push, lb.node, connectionManager, httpOpts.class)
 
 	filters := []*hcm.HttpFilter{}
+	// Make sure cors filter always in the first.
+	filters = append([]*hcm.HttpFilter{xdsfilters.Cors}, filters...)
 	if !httpOpts.isWaypoint {
 		wasm := lb.push.WasmPluginsByListenerInfo(lb.node, model.WasmPluginListenerInfo{
 			Port:  httpOpts.port,
@@ -396,7 +398,7 @@ func (lb *ListenerBuilder) buildHTTPConnectionManager(httpOpts *httpListenerOpts
 	}
 
 	// TypedPerFilterConfig in route needs these filters.
-	filters = append(filters, xdsfilters.Fault, xdsfilters.Cors)
+	filters = append(filters, xdsfilters.Fault)
 	if !httpOpts.isWaypoint {
 		filters = append(filters, lb.push.Telemetry.HTTPFilters(lb.node, httpOpts.class)...)
 	}

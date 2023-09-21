@@ -36,6 +36,7 @@ import (
 	"istio.io/istio/pkg/config/constants"
 	"istio.io/istio/pkg/config/host"
 	"istio.io/istio/pkg/config/protocol"
+	"istio.io/istio/pkg/config/schema/collections"
 	"istio.io/istio/pkg/config/schema/gvk"
 	"istio.io/istio/pkg/util/sets"
 )
@@ -250,6 +251,36 @@ func TestBuildHTTPRoutes(t *testing.T) {
 
 		g.Expect(err).NotTo(gomega.HaveOccurred())
 		g.Expect(len(routes)).To(gomega.Equal(1))
+	})
+
+	t.Run("for virtual service with internal active redirect", func(t *testing.T) {
+		g := gomega.NewWithT(t)
+		routes, err := route.BuildHTTPRoutesForVirtualService(node, virtualServiceWithInternalActiveRedirect, serviceRegistry, nil, 8080, gatewayNames, false, nil)
+		xdstest.ValidateRoutes(t, routes)
+		g.Expect(err).NotTo(gomega.HaveOccurred())
+		g.Expect(len(routes)).To(gomega.Equal(1))
+		internalActiveRedirect := routes[0].GetRoute().GetInternalActiveRedirectPolicy()
+		g.Expect(internalActiveRedirect).NotTo(gomega.BeNil())
+		g.Expect(internalActiveRedirect.GetMaxInternalRedirects().Value).To(gomega.Equal(uint32(1)))
+		g.Expect(len(internalActiveRedirect.GetRedirectResponseCodes())).To(gomega.Equal(2))
+		g.Expect(internalActiveRedirect.GetRedirectResponseCodes()[1]).To(gomega.Equal(uint32(503)))
+		g.Expect(internalActiveRedirect.GetRedirectUrl()).To(gomega.Equal("/test"))
+		g.Expect(internalActiveRedirect.GetRequestHeadersToAdd()[0].GetHeader().GetKey()).To(gomega.Equal("x-test"))
+		g.Expect(internalActiveRedirect.GetRequestHeadersToAdd()[0].GetHeader().GetValue()).To(gomega.Equal("true"))
+		g.Expect(internalActiveRedirect.GetHostRewriteLiteral()).To(gomega.Equal("foo.example.org"))
+	})
+
+	t.Run("for virtual service with regex rewrite URI", func(t *testing.T) {
+		g := gomega.NewWithT(t)
+		routes, err := route.BuildHTTPRoutesForVirtualService(node, virtualServiceWithUriRegexRewrite, serviceRegistry, nil, 8080, gatewayNames, false, nil)
+		xdstest.ValidateRoutes(t, routes)
+		g.Expect(err).NotTo(gomega.HaveOccurred())
+		g.Expect(len(routes)).To(gomega.Equal(1))
+		g.Expect(routes[0].GetMatch().GetSafeRegex().GetRegex()).To(gomega.Equal("\\/(.?)\\/status"))
+		g.Expect(routes[0].GetRoute().GetPrefixRewrite()).To(gomega.Equal(""))
+		g.Expect(routes[0].GetRoute().GetRegexRewrite().GetSubstitution()).To(gomega.Equal("foostatus"))
+		g.Expect(routes[0].GetRoute().GetRegexRewrite().GetPattern().GetRegex()).To(gomega.Equal("status"))
+		g.Expect(routes[0].GetRoute().GetHostRewriteLiteral()).To(gomega.Equal("test.com"))
 	})
 
 	t.Run("for virtual service with regex matching on URI", func(t *testing.T) {
@@ -1235,6 +1266,46 @@ var virtualServicePlain = config.Config{
 	},
 }
 
+var virtualServiceWithInternalActiveRedirect = config.Config{
+	Meta: config.Meta{
+		GroupVersionKind: collections.IstioNetworkingV1Alpha3Virtualservices.Resource().GroupVersionKind(),
+		Name:             "acme",
+	},
+	Spec: &networking.VirtualService{
+		Hosts:    []string{},
+		Gateways: []string{"some-gateway"},
+		Http: []*networking.HTTPRoute{
+			{
+				Route: []*networking.HTTPRouteDestination{
+					{
+						Destination: &networking.Destination{
+							Host: "*.example.org",
+							Port: &networking.PortSelector{
+								Number: 8484,
+							},
+						},
+						Weight: 100,
+					},
+				},
+				InternalActiveRedirect: &networking.HTTPInternalActiveRedirect{
+					MaxInternalRedirects:  1,
+					RedirectResponseCodes: []uint32{404, 503},
+					RedirectUrlRewriteSpecifier: &networking.HTTPInternalActiveRedirect_RedirectUrl{
+						RedirectUrl: "/test",
+					},
+					AllowCrossScheme: false,
+					Headers: &networking.Headers{
+						Request: &networking.Headers_HeaderOperations{
+							Add: map[string]string{"x-test": "true"},
+						},
+					},
+					Authority: "foo.example.org",
+				},
+			},
+		},
+	},
+}
+
 var virtualServiceWithTimeout = config.Config{
 	Meta: config.Meta{
 		GroupVersionKind: gvk.VirtualService,
@@ -2015,6 +2086,49 @@ var virtualServiceWithRegexMatchingOnHeader = config.Config{
 	},
 }
 
+var virtualServiceWithUriRegexRewrite = config.Config{
+	Meta: config.Meta{
+		GroupVersionKind: collections.IstioNetworkingV1Alpha3Virtualservices.Resource().GroupVersionKind(),
+		Name:             "acme",
+	},
+	Spec: &networking.VirtualService{
+		Hosts:    []string{},
+		Gateways: []string{"some-gateway"},
+		Http: []*networking.HTTPRoute{
+			{
+				Match: []*networking.HTTPMatchRequest{
+					{
+						Name: "status",
+						Uri: &networking.StringMatch{
+							MatchType: &networking.StringMatch_Regex{
+								Regex: "\\/(.?)\\/status",
+							},
+						},
+					},
+				},
+				Rewrite: &networking.HTTPRewrite{
+					UriRegex: &networking.RegexMatchAndSubstitute{
+						Pattern:      "status",
+						Substitution: "foostatus",
+					},
+					Authority: "test.com",
+				},
+				Route: []*networking.HTTPRouteDestination{
+					{
+						Destination: &networking.Destination{
+							Host: "foo.example.org",
+							Port: &networking.PortSelector{
+								Number: 8484,
+							},
+						},
+						Weight: 100,
+					},
+				},
+			},
+		},
+	},
+}
+
 func createVirtualServiceWithRegexMatchingForAllCasesOnHeader() []*config.Config {
 	ret := []*config.Config{}
 	regex := "*"
@@ -2597,6 +2711,47 @@ func TestSortVHostRoutes(t *testing.T) {
 				for _, g := range tc.expected {
 					t.Errorf("%v\n", g.Match.PathSpecifier)
 				}
+			}
+		})
+	}
+}
+
+func TestIgnoreRedirect(t *testing.T) {
+	cases := []struct {
+		redirect *networking.HTTPRedirect
+		port     int
+		expect   bool
+	}{
+		{
+			redirect: &networking.HTTPRedirect{
+				Scheme: "https",
+			},
+			port:   8080,
+			expect: false,
+		},
+		{
+			redirect: &networking.HTTPRedirect{
+				Scheme: "https",
+				Uri:    "/test",
+			},
+			port:   443,
+			expect: false,
+		},
+		{
+			redirect: &networking.HTTPRedirect{
+				Scheme:       "https",
+				RedirectCode: 308,
+			},
+			port:   443,
+			expect: true,
+		},
+	}
+
+	for _, c := range cases {
+		t.Run("", func(t *testing.T) {
+			result := route.IgnoreRedirect(c.redirect, c.port)
+			if c.expect != result {
+				t.Fatalf("Should be %v, actual is %v", c.expect, result)
 			}
 		})
 	}

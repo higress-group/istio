@@ -140,3 +140,13 @@ func PathMatcher(path string) *matcher.PathMatcher {
 		},
 	}
 }
+
+// ExtensionPathMatcher creates a path matcher for a path.
+// Added by ingress
+func ExtensionPathMatcher(path string) *matcher.PathMatcher {
+	return &matcher.PathMatcher{
+		Rule: &matcher.PathMatcher_Path{
+			Path: ExtensionStringMatcher(path),
+		},
+	}
+}

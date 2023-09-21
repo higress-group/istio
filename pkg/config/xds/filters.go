@@ -22,7 +22,10 @@ import (
 const (
 	WasmHTTPFilterType = resource.APITypePrefix + wellknown.HTTPWasm
 	RBACHTTPFilterType = resource.APITypePrefix + "envoy.extensions.filters.http.rbac.v3.RBAC"
-	TypedStructType    = resource.APITypePrefix + "udpa.type.v1.TypedStruct"
+	// Added by Ingress
+	CompositeHTTPFilterType = resource.APITypePrefix + "envoy.extensions.filters.http.composite.v3.Composite"
+	// Added by Ingress
+	TypedStructType = resource.APITypePrefix + "udpa.type.v1.TypedStruct"
 
 	StatsFilterName       = "istio.stats"
 	StackdriverFilterName = "istio.stackdriver"

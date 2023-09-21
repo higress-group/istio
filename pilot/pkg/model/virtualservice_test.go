@@ -1852,6 +1852,12 @@ func TestFuzzMergeHttpRoute(t *testing.T) {
 		},
 		func(r *networking.Headers, c fuzz.Continue) {
 			*r = networking.Headers{}
+		}),
+		func(r *networking.HTTPDirectResponse, c fuzz.Continue) {
+			*r = networking.HTTPDirectResponse{}
+		},
+		func(r *networking.HTTPInternalActiveRedirect, c fuzz.Continue) {
+			*r = networking.HTTPInternalActiveRedirect{}
 		})
 
 	root := &networking.HTTPRoute{}

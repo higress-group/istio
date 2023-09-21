@@ -22,6 +22,7 @@ import (
 
 	core "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	discovery "github.com/envoyproxy/go-control-plane/envoy/service/discovery/v3"
+	any "google.golang.org/protobuf/types/known/anypb"
 
 	"istio.io/istio/pilot/pkg/features"
 	"istio.io/istio/pilot/pkg/model"
@@ -90,6 +91,20 @@ func (s *DiscoveryServer) findGenerator(typeURL string, con *Connection) model.X
 	return g
 }
 
+// Added by ingress
+func (s *DiscoveryServer) findMcpGenerator(typeURL string, con *Connection) model.McpResourceGenerator {
+	if g, f := s.McpGenerators[con.proxy.Metadata.Generator+"/"+typeURL]; f {
+		return g
+	}
+
+	if g, f := s.McpGenerators[typeURL]; f {
+		return g
+	}
+	return nil
+}
+
+// End added by ingress
+
 // Push an XDS resource for the given connection. Configuration will be generated
 // based on the passed in generator. Based on the updates field, generators may
 // choose to send partial or even no response if there are no changes.
@@ -97,10 +112,10 @@ func (s *DiscoveryServer) pushXds(con *Connection, w *model.WatchedResource, req
 	if w == nil {
 		return nil
 	}
-	gen := s.findGenerator(w.TypeUrl, con)
-	if gen == nil {
-		return nil
-	}
+	//gen := s.findGenerator(w.TypeUrl, con)
+	//if gen == nil {
+	//	return nil
+	//}
 
 	t0 := time.Now()
 
@@ -118,7 +133,28 @@ func (s *DiscoveryServer) pushXds(con *Connection, w *model.WatchedResource, req
 			ResourceNames: req.Delta.Subscribed.UnsortedList(),
 		}
 	}
-	res, logdata, err := gen.Generate(con.proxy, w, req)
+	//res, logdata, err := gen.Generate(con.proxy, w, req)
+	// Modified by ingress
+	var (
+		res     []*any.Any
+		logdata model.XdsLogDetails
+		err     error
+	)
+	if s.Env.MCPMode {
+		res = make([]*any.Any, 0)
+		gen := s.findMcpGenerator(w.TypeUrl, con)
+		if gen != nil {
+			res, logdata, err = gen.Generate(con.proxy, push, w, req)
+		}
+	} else {
+		gen := s.findGenerator(w.TypeUrl, con)
+		if gen == nil {
+			return nil
+		}
+		var resource model.Resources
+		resource, logdata, err = gen.Generate(con.proxy, push, w, req)
+		res = model.ResourcesToAny(resource)
+	}
 	info := ""
 	if len(logdata.AdditionalInfo) > 0 {
 		info = " " + logdata.AdditionalInfo
@@ -151,10 +187,10 @@ func (s *DiscoveryServer) pushXds(con *Connection, w *model.WatchedResource, req
 		// TODO: send different version for incremental eds
 		VersionInfo: req.Push.PushVersion,
 		Nonce:       nonce(req.Push.LedgerVersion),
-		Resources:   model.ResourcesToAny(res),
+		Resources:   res,
 	}
 
-	configSize := ResourceSize(res)
+	configSize := AnyResourceSize(res)
 	configSizeBytes.With(typeTag.Value(w.TypeUrl)).Record(float64(configSize))
 
 	ptype := "PUSH"
@@ -183,7 +219,7 @@ func (s *DiscoveryServer) pushXds(con *Connection, w *model.WatchedResource, req
 			debug = " nonce:" + resp.Nonce + " version:" + resp.VersionInfo
 		}
 		log.Infof("%s: %s%s for node:%s resources:%d size:%v%s%s", v3.GetShortType(w.TypeUrl), ptype, req.PushReason(), con.proxy.ID, len(res),
-			util.ByteCount(ResourceSize(res)), info, debug)
+			util.ByteCount(AnyResourceSize(res)), info, debug)
 	}
 
 	return nil
@@ -198,3 +234,16 @@ func ResourceSize(r model.Resources) int {
 	}
 	return size
 }
+
+// Added by ingress
+func AnyResourceSize(r []*any.Any) int {
+	// Approximate size by looking at the Any marshaled size. This avoids high cost
+	// proto.Size, at the expense of slightly under counting.
+	size := 0
+	for _, r := range r {
+		size += len(r.Value)
+	}
+	return size
+}
+
+// End added by ingress

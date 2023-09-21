@@ -16,10 +16,13 @@ package route
 
 import (
 	"fmt"
+	"github.com/golang/protobuf/ptypes/duration"
+	"istio.io/istio/pilot/pkg/networking/core/v1alpha3/mseingress"
 	"sort"
 	"strconv"
 	"strings"
 
+	fallback "github.com/envoyproxy/go-control-plane/contrib/envoy/extensions/custom_cluster_plugins/cluster_fallback/v3"
 	core "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	route "github.com/envoyproxy/go-control-plane/envoy/config/route/v3"
 	xdsfault "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/common/fault/v3"
@@ -27,7 +30,6 @@ import (
 	matcher "github.com/envoyproxy/go-control-plane/envoy/type/matcher/v3"
 	xdstype "github.com/envoyproxy/go-control-plane/envoy/type/v3"
 	"github.com/envoyproxy/go-control-plane/pkg/wellknown"
-	"github.com/golang/protobuf/ptypes/duration"
 	anypb "google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/durationpb"
 	wrappers "google.golang.org/protobuf/types/known/wrapperspb"
@@ -359,6 +361,59 @@ func BuildHTTPRoutesForVirtualService(
 	return out, nil
 }
 
+func BuildHTTPRoutesForVirtualServiceWithHTTPFilters(
+	node *model.Proxy,
+	virtualService config.Config,
+	serviceRegistry map[host.Name]*model.Service,
+	hashByDestination map[*networking.HTTPRouteDestination]*networking.LoadBalancerSettings_ConsistentHashLB,
+	listenPort int,
+	gatewayNames map[string]bool,
+	isHTTP3AltSvcHeaderNeeded bool,
+	mesh *meshconfig.MeshConfig,
+	globalHTTPFilters *mseingress.GlobalHTTPFilters,
+) ([]*route.Route, error) {
+	vs, ok := virtualService.Spec.(*networking.VirtualService)
+	if !ok { // should never happen
+		return nil, fmt.Errorf("in not a virtual service: %#v", virtualService)
+	}
+
+	out := make([]*route.Route, 0, len(vs.Http))
+
+	catchall := false
+	for _, http := range vs.Http {
+		if len(http.Match) == 0 {
+			if r := translateRoute(node, http, nil, listenPort, virtualService, serviceRegistry,
+				hashByDestination, gatewayNames, isHTTP3AltSvcHeaderNeeded, mesh); r != nil {
+				out = append(out, r)
+				r.TypedPerFilterConfig = mseingress.ConstructTypedPerFilterConfigForRoute(globalHTTPFilters, virtualService, http)
+			}
+			catchall = true
+		} else {
+			for _, match := range http.Match {
+				if r := translateRoute(node, http, match, listenPort, virtualService, serviceRegistry,
+					hashByDestination, gatewayNames, isHTTP3AltSvcHeaderNeeded, mesh); r != nil {
+					out = append(out, r)
+					r.TypedPerFilterConfig = mseingress.ConstructTypedPerFilterConfigForRoute(globalHTTPFilters, virtualService, http)
+					// This is a catch all path. Routes are matched in order, so we will never go beyond this match
+					// As an optimization, we can just top sending any more routes here.
+					if isCatchAllMatch(match) {
+						catchall = true
+						break
+					}
+				}
+			}
+		}
+		if catchall {
+			break
+		}
+	}
+
+	if len(out) == 0 {
+		return nil, fmt.Errorf("no routes matched")
+	}
+	return out, nil
+}
+
 // sourceMatchHttp checks if the sourceLabels or the gateways in a match condition match with the
 // labels for the proxy or the gateway name for which we are generating a route
 func sourceMatchHTTP(match *networking.HTTPMatchRequest, proxyLabels labels.Instance, gatewayNames sets.String, proxyNamespace string) bool {
@@ -429,7 +484,7 @@ func translateRoute(
 		authority = operations.Authority
 	}
 
-	if in.Redirect != nil {
+	if in.Redirect != nil && !IgnoreRedirect(redirect, port) {
 		ApplyRedirect(out, in.Redirect, listenPort, opts.IsTLS, model.UseGatewaySemantics(virtualService))
 	} else if in.DirectResponse != nil {
 		ApplyDirectResponse(out, in.DirectResponse)
@@ -475,6 +530,8 @@ func applyHTTPRouteDestination(
 	action := &route.RouteAction{
 		Cors:        TranslateCORSPolicy(in.CorsPolicy),
 		RetryPolicy: retry.ConvertPolicy(policy),
+		// Added by ingress
+		InternalActiveRedirectPolicy: TranslateInternalActiveRedirectPolicy(in.InternalActiveRedirect, regexEngine),
 	}
 
 	setTimeout(action, in.Timeout, node)
@@ -492,7 +549,17 @@ func applyHTTPRouteDestination(
 			Cluster: in.Name,
 		}
 		uri := in.Rewrite.GetUri()
-		if fullURI, isFullPathRewrite := cutPrefix(uri, "%FULLREPLACE()%"); isFullPathRewrite && model.UseGatewaySemantics(vs) {
+		// Only one of RegexRewrite or PrefixRewrite may be specified. If UriRegex policy is not nil,
+		// we ignore Uri and use UriRegex for rewrite.
+		if regexRewrite := in.Rewrite.GetUriRegex(); regexRewrite != nil {
+			action.RegexRewrite = &matcher.RegexMatchAndSubstitute{
+				Pattern: &matcher.RegexMatcher{
+					Regex:      regexRewrite.GetPattern(),
+					EngineType: regexEngine,
+				},
+				Substitution: regexRewrite.GetSubstitution(),
+			}
+		} else if fullURI, isFullPathRewrite := cutPrefix(uri, "%FULLREPLACE()%"); isFullPathRewrite && model.UseGatewaySemantics(vs) {
 			action.RegexRewrite = &matcher.RegexMatchAndSubstitute{
 				Pattern: &matcher.RegexMatcher{
 					Regex: "/.*",
@@ -562,6 +629,63 @@ func applyHTTPRouteDestination(
 		}
 	}
 
+	// Added by ingress
+	convertFallbackClusters := func(original string, fallbackClusters []*networking.Destination) *fallback.ClusterFallbackConfig_ClusterConfig {
+		var clusters []string
+		for _, cluster := range fallbackClusters {
+			hostname := host.Name(cluster.GetHost())
+			clusters = append(clusters, GetDestinationCluster(cluster, serviceRegistry[hostname], port))
+		}
+		return &fallback.ClusterFallbackConfig_ClusterConfig{
+			RoutingCluster:   original,
+			FallbackClusters: clusters,
+		}
+	}
+	var singleClusterConfig *fallback.ClusterFallbackConfig
+	var weightedClusterConfig *fallback.ClusterFallbackConfig
+	isSupportFallback := supportFallback(node)
+	// Added by ingress
+	if len(in.Route) == 1 {
+		route := in.Route[0]
+		if len(route.FallbackClusters) > 0 {
+			singleClusterConfig = &fallback.ClusterFallbackConfig{
+				ConfigSpecifier: &fallback.ClusterFallbackConfig_ClusterConfig_{
+					ClusterConfig: convertFallbackClusters(weighted[0].Name, route.FallbackClusters),
+				},
+			}
+		}
+	} else {
+		var clusterConfigList []*fallback.ClusterFallbackConfig_ClusterConfig
+		idx := 0
+		for _, dst := range in.Route {
+			if dst.Weight == 0 {
+				continue
+			}
+
+			if len(dst.FallbackClusters) > 0 {
+				clusterConfigList = append(clusterConfigList, convertFallbackClusters(weighted[idx].Name, dst.FallbackClusters))
+			}
+
+			idx++
+		}
+
+		if len(clusterConfigList) == 1 {
+			singleClusterConfig = &fallback.ClusterFallbackConfig{
+				ConfigSpecifier: &fallback.ClusterFallbackConfig_ClusterConfig_{
+					ClusterConfig: clusterConfigList[0],
+				},
+			}
+		} else if len(clusterConfigList) > 1 {
+			weightedClusterConfig = &fallback.ClusterFallbackConfig{
+				ConfigSpecifier: &fallback.ClusterFallbackConfig_WeightedClusterConfig_{
+					WeightedClusterConfig: &fallback.ClusterFallbackConfig_WeightedClusterConfig{
+						Config: clusterConfigList,
+					},
+				},
+			}
+		}
+	}
+
 	// rewrite to a single cluster if there is only weighted cluster
 	if len(weighted) == 1 {
 		action.ClusterSpecifier = &route.RouteAction_Cluster{Cluster: weighted[0].Name}
@@ -578,11 +702,20 @@ func applyHTTPRouteDestination(
 			action.HostRewriteSpecifier = &route.RouteAction_HostRewriteLiteral{
 				HostRewriteLiteral: weighted[0].GetHostRewriteLiteral(),
 			}
+
+			// Added by ingress
+			if isSupportFallback && singleClusterConfig != nil {
+				action.ClusterSpecifier = &route.RouteAction_InlineClusterSpecifierPlugin{
+					InlineClusterSpecifierPlugin: buildClusterSpecifierPlugin(isSupportFallback, singleClusterConfig),
+				}
+			}
 		}
 	} else {
 		action.ClusterSpecifier = &route.RouteAction_WeightedClusters{
 			WeightedClusters: &route.WeightedCluster{
 				Clusters: weighted,
+				// Added by ingress
+				InlineClusterSpecifierPlugin: buildClusterSpecifierPlugin(isSupportFallback, weightedClusterConfig),
 			},
 		}
 	}
@@ -1408,6 +1541,55 @@ func isCatchAllRoute(r *route.Route) bool {
 	// A Match is catch all if and only if it has no header/query param match
 	// and URI has a prefix / or regex *.
 	return catchall && len(r.Match.Headers) == 0 && len(r.Match.QueryParameters) == 0 && len(r.Match.DynamicMetadata) == 0
+}
+
+func IgnoreRedirect(redirect *networking.HTTPRedirect, port int) bool {
+	if port != 443 {
+		return false
+	}
+
+	if redirect.Uri == "" && redirect.Authority == "" && redirect.RedirectPort == nil &&
+		redirect.Scheme == "https" {
+		return true
+	}
+
+	return false
+}
+
+func buildClusterSpecifierPlugin(isSupport bool, config *fallback.ClusterFallbackConfig) *route.ClusterSpecifierPlugin {
+	if !isSupport || config == nil {
+		return nil
+	}
+
+	return &route.ClusterSpecifierPlugin{
+		Extension: &core.TypedExtensionConfig{
+			Name:        "envoy.router.cluster_specifier_plugin.cluster_fallback",
+			TypedConfig: util.MessageToAny(config),
+		},
+	}
+}
+
+var notSupportFallback, _ = version.NewVersion("1.20.6")
+
+func supportFallback(proxy *model.Proxy) (isSupport bool) {
+	defer func() {
+		log.Debugf("proxy %s support fallback %v", proxy.ID, isSupport)
+	}()
+
+	rawVersion, exist := proxy.Metadata.Raw["ENVOY_VERSION"]
+	if !exist {
+		return
+	}
+
+	versionStr := rawVersion.(string)
+	log.Debugf("Envoy version is %s", versionStr)
+	curVersion, err := version.NewVersion(versionStr)
+	if err != nil {
+		return
+	}
+
+	isSupport = curVersion.GreaterThan(notSupportFallback)
+	return
 }
 
 func cutPrefix(s, prefix string) (after string, found bool) {

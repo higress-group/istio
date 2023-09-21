@@ -131,6 +131,30 @@ function download_envoy_if_necessary () {
   fi
 }
 
+function untar_envoy_if_necessary () {
+  if [[ -f "$1" ]] && [[ ! -f "$2" ]] ; then
+    # Enter the output directory.
+    mkdir -p "$(dirname "$2")"
+    pushd "$(dirname "$2")"
+
+    # Download and extract the binary to the output directory.
+    echo "untar ${SIDECAR}: $1 to $2"
+    #    time ${DOWNLOAD_COMMAND} --header "${AUTH_HEADER:-}" "$1" | tar xz
+    tar -xzf $1
+
+    # Copy the extracted binary to the output location
+    cp usr/local/bin/"${SIDECAR}" "$2"
+
+    # Remove the extracted binary.
+    rm -rf usr
+
+    # Make a copy named just "envoy" in the same directory (overwrite if necessary).
+    echo "Copying $2 to $(dirname "$2")/${3}"
+    cp -f "$2" "$(dirname "$2")/${3}"
+    popd
+  fi
+}
+
 # Downloads WebAssembly based plugin if it doesn't already exist.
 # Params:
 #   $1: The URL of the WebAssembly file to be downloaded.
@@ -171,17 +195,24 @@ else
 fi
 
 # Download and extract the Envoy linux release binary.
-download_envoy_if_necessary "${ISTIO_ENVOY_LINUX_RELEASE_URL}" "$ISTIO_ENVOY_LINUX_RELEASE_PATH" "${SIDECAR}"
-download_envoy_if_necessary "${ISTIO_ENVOY_CENTOS_RELEASE_URL}" "$ISTIO_ENVOY_CENTOS_LINUX_RELEASE_PATH" "${SIDECAR}-centos"
+#download_envoy_if_necessary "${ISTIO_ENVOY_LINUX_RELEASE_URL}" "$ISTIO_ENVOY_LINUX_RELEASE_PATH" "${SIDECAR}"
+#download_envoy_if_necessary "${ISTIO_ENVOY_CENTOS_RELEASE_URL}" "$ISTIO_ENVOY_CENTOS_LINUX_RELEASE_PATH" "${SIDECAR}-centos"
+
+untar_envoy_if_necessary "${ENVOY_TAR_PATH}" "$ISTIO_ENVOY_LINUX_RELEASE_PATH" "${SIDECAR}"
+
 ISTIO_ENVOY_NATIVE_PATH=${ISTIO_ENVOY_LINUX_RELEASE_PATH}
 
 # Copy native envoy binary to TARGET_OUT
-echo "Copying ${ISTIO_ENVOY_NATIVE_PATH} to ${TARGET_OUT}/${SIDECAR}"
-cp -f "${ISTIO_ENVOY_NATIVE_PATH}" "${TARGET_OUT}/${SIDECAR}"
+#echo "Copying ${ISTIO_ENVOY_NATIVE_PATH} to ${TARGET_OUT}/${SIDECAR}"
+#cp -f "${ISTIO_ENVOY_NATIVE_PATH}" "${TARGET_OUT}/${SIDECAR}"
+if [[ -f "${ISTIO_ENVOY_NATIVE_PATH}" ]]; then
+    echo "Copying ${ISTIO_ENVOY_NATIVE_PATH} to ${TARGET_OUT}/${SIDECAR}"
+    cp -f "${ISTIO_ENVOY_NATIVE_PATH}" "${TARGET_OUT}/${SIDECAR}"
+fi
 
 # Copy CentOS binary
-echo "Copying ${ISTIO_ENVOY_CENTOS_LINUX_RELEASE_PATH} to ${TARGET_OUT_LINUX}/${SIDECAR}-centos"
-cp -f "${ISTIO_ENVOY_CENTOS_LINUX_RELEASE_PATH}" "${TARGET_OUT_LINUX}/${SIDECAR}-centos"
+#echo "Copying ${ISTIO_ENVOY_CENTOS_LINUX_RELEASE_PATH} to ${TARGET_OUT_LINUX}/${SIDECAR}-centos"
+#cp -f "${ISTIO_ENVOY_CENTOS_LINUX_RELEASE_PATH}" "${TARGET_OUT_LINUX}/${SIDECAR}-centos"
 
 # Copy the envoy binary to TARGET_OUT_LINUX if the local OS is not Linux
 if [[ "$GOOS_LOCAL" != "linux" ]]; then
