@@ -251,7 +251,7 @@ func (configgen *ConfigGeneratorImpl) buildGatewayTCPBasedFilterChains(
 		// We have a list of HTTP servers on this port. Build a single listener for the server port.
 		port := &networking.Port{Number: port.Number, Protocol: port.Protocol}
 		httpFilterChainOpts := configgen.createGatewayHTTPFilterChainOpts(builder.node, port, nil, serversForPort.RouteName,
-			proxyConfig, istionetworking.ListenerProtocolTCP, builder.push)
+			proxyConfig, istionetworking.ListenerProtocolTCP, builder.push, nil)
 		// In HTTP, we need to have RBAC, etc. upfront so that they can enforce policies immediately
 		httpFilterChainOpts.networkFilters = extension.PopAppendNetwork(httpFilterChainOpts.networkFilters, wasm, extensions.PluginPhase_AUTHN)
 		httpFilterChainOpts.networkFilters = append(httpFilterChainOpts.networkFilters, xdsfilters.IstioNetworkAuthenticationFilter)
@@ -267,10 +267,19 @@ func (configgen *ConfigGeneratorImpl) buildGatewayTCPBasedFilterChains(
 		// This process typically yields multiple filter chain matches (with SNI) [if TLS is used]
 		for _, server := range serversForPort.Servers {
 			if gateway.IsHTTPSServerWithTLSTermination(server) {
+				// Added by ingress
+				gatewayConfig := builder.push.GetGatewayByName(mergedGateway.GatewayNameForServer[server])
+				log.Debugf("[Listener] Get gatewayConfig %v", gatewayConfig)
+				extraOpts := &buildListenerFilterChainExtraOpts{
+					gatewayConfig: builder.push.GetGatewayByName(mergedGateway.GatewayNameForServer[server]),
+					meshConfig:    builder.push.Mesh,
+					proxyConfig:   proxyConfig,
+				}
+				// End added by ingress
 				routeName := mergedGateway.TLSServerInfo[server].RouteName
 				// This is a HTTPS server, where we are doing TLS termination. Build a http connection manager with TLS context
 				httpFilterChainOpts := configgen.createGatewayHTTPFilterChainOpts(builder.node, server.Port, server,
-					routeName, proxyConfig, istionetworking.TransportProtocolTCP, builder.push)
+					routeName, proxyConfig, istionetworking.TransportProtocolTCP, builder.push, extraOpts)
 				// In HTTP, we need to have RBAC, etc. upfront so that they can enforce policies immediately
 				httpFilterChainOpts.networkFilters = extension.PopAppendNetwork(httpFilterChainOpts.networkFilters, wasm, extensions.PluginPhase_AUTHN)
 				httpFilterChainOpts.networkFilters = append(httpFilterChainOpts.networkFilters, xdsfilters.IstioNetworkAuthenticationFilter)
@@ -307,7 +316,7 @@ func (configgen *ConfigGeneratorImpl) buildGatewayHTTP3FilterChains(
 		// server. So the same route name would be reused instead of creating new one.
 		routeName := mergedGateway.TLSServerInfo[server].RouteName
 		quicFilterChainOpts = append(quicFilterChainOpts, configgen.createGatewayHTTPFilterChainOpts(builder.node, server.Port, server,
-			routeName, proxyConfig, istionetworking.TransportProtocolQUIC, builder.push))
+			routeName, proxyConfig, istionetworking.TransportProtocolQUIC, builder.push, nil))
 	}
 	opts.filterChainOpts = quicFilterChainOpts
 }
@@ -642,7 +651,7 @@ func routesEqual(a, b []*route.Route) bool {
 // builds a HTTP connection manager for servers of type HTTP or HTTPS (mode: simple/mutual)
 func (configgen *ConfigGeneratorImpl) createGatewayHTTPFilterChainOpts(node *model.Proxy, port *networking.Port, server *networking.Server,
 	routeName string, proxyConfig *meshconfig.ProxyConfig, transportProtocol istionetworking.TransportProtocol,
-	push *model.PushContext,
+	push *model.PushContext, extraOpts *buildListenerFilterChainExtraOpts,
 ) *filterChainOpts {
 	serverProto := protocol.Parse(port.Protocol)
 	ph := GetProxyHeadersFromProxyConfig(proxyConfig, istionetworking.ListenerClassGateway)
@@ -673,7 +682,7 @@ func (configgen *ConfigGeneratorImpl) createGatewayHTTPFilterChainOpts(node *mod
 		// and that no two non-HTTPS servers can be on same port or share port names.
 		// Validation is done per gateway and also during merging
 		sniHosts:   node.MergedGateway.TLSServerInfo[server].SNIHosts,
-		tlsContext: buildGatewayListenerTLSContext(push.Mesh, server, node, transportProtocol),
+		tlsContext: buildGatewayListenerTLSContext(push.Mesh, server, node, transportProtocol, extraOpts),
 		httpOpts: &httpListenerOpts{
 			rds:                       routeName,
 			useRemoteAddress:          true,
@@ -757,6 +766,7 @@ func buildGatewayConnectionManager(proxyConfig *meshconfig.ProxyConfig, node *mo
 // Note that ISTIO_MUTUAL TLS mode and ingressSds should not be used simultaneously on the same ingress gateway.
 func buildGatewayListenerTLSContext(
 	mesh *meshconfig.MeshConfig, server *networking.Server, proxy *model.Proxy, transportProtocol istionetworking.TransportProtocol,
+	extraOpts *buildListenerFilterChainExtraOpts,
 ) *tls.DownstreamTlsContext {
 	// Server.TLS cannot be nil or passthrough. But as a safety guard, return nil
 	if server.Tls == nil || gateway.IsPassThroughServer(server) {
@@ -764,7 +774,7 @@ func buildGatewayListenerTLSContext(
 	}
 
 	server.Tls.CipherSuites = security.FilterCipherSuites(server.Tls.CipherSuites)
-	return BuildListenerTLSContext(server.Tls, proxy, mesh, transportProtocol, gateway.IsTCPServerWithTLSTermination(server))
+	return BuildListenerTLSContext(server.Tls, proxy, mesh, transportProtocol, gateway.IsTCPServerWithTLSTermination(server), extraOpts)
 }
 
 func convertTLSProtocol(in networking.ServerTLSSettings_TLSProtocol) tls.TlsParameters_TlsProtocol {
@@ -803,7 +813,7 @@ func (lb *ListenerBuilder) createGatewayTCPFilterChainOpts(
 			return []*filterChainOpts{
 				{
 					sniHosts:       lb.node.MergedGateway.TLSServerInfo[server].SNIHosts,
-					tlsContext:     buildGatewayListenerTLSContext(lb.push.Mesh, server, lb.node, istionetworking.TransportProtocolTCP),
+					tlsContext:     buildGatewayListenerTLSContext(lb.push.Mesh, server, lb.node, istionetworking.TransportProtocolTCP, nil),
 					networkFilters: filters,
 				},
 			}

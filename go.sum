@@ -483,6 +483,10 @@ github.com/hashicorp/golang-lru/v2 v2.0.5 h1:wW7h1TG88eUIJ2i69gaE3uNVtEPIagzhGvH
 github.com/hashicorp/golang-lru/v2 v2.0.5/go.mod h1:QeFd9opnmA6QUJc5vARoKUSoFhyfM2/ZepoAG6RGpeM=
 github.com/hashicorp/hcl v1.0.0 h1:0Anlzjpi4vEasTeNFn2mLJgTSwt0+6sfsiTG8qcWGx4=
 github.com/hashicorp/hcl v1.0.0/go.mod h1:E5yfLk+7swimpb2L/Alb/PJmXilQ/rhwaUYs4T20WEQ=
+github.com/higress-group/api v0.0.0-20240103070837-28c3e2ceb78c h1:K+Eye60z0FlqA9my1MyzZiwvfZRtmHFW14+cYVB/yPw=
+github.com/higress-group/api v0.0.0-20240103070837-28c3e2ceb78c/go.mod h1:KstZe4bKbXouALUJ5PqpjNEhu5nj90HrDFitZfpNhlU=
+github.com/higress-group/client-go v0.0.0-20231206015206-8cdf6a3b3cfd h1:vfDsaNy3wJB2JslAvFSWmnVwVWg+PNXXjc5hI+5qK48=
+github.com/higress-group/client-go v0.0.0-20231206015206-8cdf6a3b3cfd/go.mod h1:1tGWtt3atGGsGH1Lc3KcFDL2yMu6lNbsFRm1r8hVhdg=
 github.com/hpcloud/tail v1.0.0/go.mod h1:ab1qPbhIpdTxEkNHXyeSf5vhxWSCs/tWer42PpOxQnU=
 github.com/huandu/xstrings v1.3.3/go.mod h1:y5/lhBue+AyNmUVz9RLU9xbLR0o4KIIExikq4ovT0aE=
 github.com/huandu/xstrings v1.4.0 h1:D17IlohoQq4UcpqD7fDk80P7l+lwAmlFaBHgOipl2FU=
@@ -1379,10 +1383,6 @@ honnef.co/go/tools v0.0.0-20190523083050-ea95bdfd59fc/go.mod h1:rf3lG4BRIbNafJWh
 honnef.co/go/tools v0.0.1-2019.2.3/go.mod h1:a3bituU0lyd329TUQxRnasdCoJDkEUEAqEt0JzvZhAg=
 honnef.co/go/tools v0.0.1-2020.1.3/go.mod h1:X/FiERA/W4tHapMX5mGpAtMSVEeEUOyHaw9vFzvIQ3k=
 honnef.co/go/tools v0.0.1-2020.1.4/go.mod h1:X/FiERA/W4tHapMX5mGpAtMSVEeEUOyHaw9vFzvIQ3k=
-istio.io/api v1.19.0-alpha.1.0.20230918214254-81c6f470a05e h1:67qPPS5KfX4do6WNgiry4n0SFHBhwkhuLMzLKi4HcUE=
-istio.io/api v1.19.0-alpha.1.0.20230918214254-81c6f470a05e/go.mod h1:hFqNwCBpXIy5jboW4geFoz3io9ZR3nVJ4oLI7udf6Vo=
-istio.io/client-go v1.19.0-alpha.1.0.20230918215054-8519cd6292c3 h1:eBV4LrcaUDCRbHPj/rxpQbBXmdHh4C9sOdyRQpu9q8M=
-istio.io/client-go v1.19.0-alpha.1.0.20230918215054-8519cd6292c3/go.mod h1:7IkkSA+0YT81exNuyy+OnW/LuA5deWOF1eUmBGjiHSE=
 k8s.io/api v0.18.2/go.mod h1:SJCWI7OLzhZSvbY7U8zwNl9UA4o1fizoug34OV/2r78=
 k8s.io/api v0.18.4/go.mod h1:lOIQAKYgai1+vz9J7YcDZwC26Z0zQewYOGWdyIPUUQ4=
 k8s.io/api v0.28.1 h1:i+0O8k2NPBCPYaMB+uCkseEbawEt/eFaiRqUx8aB108=

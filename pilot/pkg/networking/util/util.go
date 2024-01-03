@@ -92,6 +92,12 @@ const (
 	AlpnOverrideMetadataKey = "alpn_override"
 )
 
+// Added by ingress
+// ALPNH11Only advertises that Proxy is going to talking http 1.1.
+var ALPNH11Only = []string{"http/1.1"}
+
+// End added by ingress
+
 // ALPNH2Only advertises that Proxy is going to use HTTP/2 when talking to the cluster.
 var ALPNH2Only = []string{"h2"}
 
