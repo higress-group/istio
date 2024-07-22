@@ -140,6 +140,11 @@ type Options struct {
 
 	ConfigController model.ConfigStoreController
 	ConfigCluster    bool
+
+	//Added by ingress
+	ResyncPeriod time.Duration
+	//end add by ingress
+
 }
 
 func (o *Options) GetFilter() namespace.DiscoveryFilter {
