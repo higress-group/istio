@@ -118,6 +118,10 @@ type Environment struct {
 
 	// Cache for XDS resources.
 	Cache XdsCache
+
+	// Added by ingress
+	IngressStore IngressStore
+	// End added by ingress
 }
 
 func (e *Environment) Mesh() *meshconfig.MeshConfig {
