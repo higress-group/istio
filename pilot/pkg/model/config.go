@@ -39,7 +39,9 @@ type ConfigHash uint64
 // places where the type is implied.
 // This is preferred to a ConfigKey with empty Kind, especially in performance sensitive code - hashing this struct
 // is 2x faster than ConfigKey.
-type NamespacedName types.NamespacedName
+type NamespacedName struct {
+	types.NamespacedName
+}
 
 // ConfigKey describe a specific config item.
 // In most cases, the name is the config's name. However, for ServiceEntry it is service's FQDN.
