@@ -121,6 +121,7 @@ func (configgen *ConfigGeneratorImpl) BuildListeners(node *model.Proxy,
 		node.RLock()
 		if len(node.CachedListeners) > 0 {
 			l = node.CachedListeners
+			log.Debugf("node %s use cached listeners: %+v", node.ID, node.CachedListeners)
 		}
 		node.RUnlock()
 	} else {
@@ -131,9 +132,11 @@ func (configgen *ConfigGeneratorImpl) BuildListeners(node *model.Proxy,
 		}
 		node.Lock()
 		node.CachedListeners = l
+		log.Debugf("node %s cached listeners: %+v", node.ID, node.CachedListeners)
 		node.Unlock()
 	}
 
+	log.Debugf("node %s use listeners: %+v", node.ID, l)
 	return l, model.XdsLogDetails{AdditionalInfo: fmt.Sprintf("cached:%v/%v", cacheStats.hits, cacheStats.hits+cacheStats.miss)}
 }
 
