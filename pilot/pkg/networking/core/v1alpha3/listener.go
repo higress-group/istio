@@ -117,14 +117,17 @@ func (configgen *ConfigGeneratorImpl) BuildListeners(node *model.Proxy,
 	// Because the EnvoyFilter still needs to be patched before the final LDS data is generated,
 	// it is determined here that as long as all LDS caches are hit, the cached listeners will be
 	// used to avoid repeatedly patching the EnvoyFilter.
+	var useCached bool
 	if !cacheStats.empty() && cacheStats.miss == 0 {
 		node.RLock()
 		if len(node.CachedListeners) > 0 {
 			l = node.CachedListeners
+			useCached = true
 			log.Debugf("node %s use cached listeners: %+v", node.ID, node.CachedListeners)
 		}
 		node.RUnlock()
-	} else {
+	}
+	if !useCached {
 		builder.patchListeners()
 		l = builder.getListeners()
 		if builder.node.EnableHBONE() && !builder.node.IsAmbient() {
@@ -135,8 +138,6 @@ func (configgen *ConfigGeneratorImpl) BuildListeners(node *model.Proxy,
 		log.Debugf("node %s cached listeners: %+v", node.ID, node.CachedListeners)
 		node.Unlock()
 	}
-
-	log.Debugf("node %s use listeners: %+v", node.ID, l)
 	return l, model.XdsLogDetails{AdditionalInfo: fmt.Sprintf("cached:%v/%v", cacheStats.hits, cacheStats.hits+cacheStats.miss)}
 }
 
