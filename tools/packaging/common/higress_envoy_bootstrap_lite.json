@@ -33,6 +33,9 @@
           }
       ]
   },
+  "deferred_stat_options": {
+    "enable_deferred_creation_stats": true
+  },
   "bootstrap_extensions": [
     {{- if .metadata_discovery }}
     {
