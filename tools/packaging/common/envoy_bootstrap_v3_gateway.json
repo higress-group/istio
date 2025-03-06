@@ -33,6 +33,9 @@
           }
       ]
   },
+  "deferred_stat_options": {
+    "enable_deferred_creation_stats": true
+  },
   "stats_config": {
     "use_all_default_tags": false,
     "stats_tags": [
