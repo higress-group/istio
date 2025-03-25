@@ -33,7 +33,7 @@ COPY gcp_envoy_bootstrap.json /var/lib/istio/envoy/gcp_envoy_bootstrap_tmpl.json
 ARG TARGETARCH
 COPY ${TARGETARCH:-amd64}/${SIDECAR} /usr/local/bin/${SIDECAR}
 
-# InstallMCP server Golang Filter
+# Install MCP server Golang Filter
 COPY ${TARGETARCH:-amd64}/mcp-server.so /var/lib/istio/envoy/mcp-server.so
 
 # Environment variable indicating the exact proxy sha - for debugging or version-specific configs
