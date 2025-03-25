@@ -112,6 +112,39 @@
       }
     ],
     "stats_matcher": {
+      "inclusion_list": {
+        "patterns": [
+          {
+          "prefix": "reporter="
+          },
+          {{- if .metadata_discovery }}
+          {
+          "prefix": "workload_discovery"
+          },
+          {{- end }}
+          {{- range $a, $s := .inclusionPrefix }}
+          {
+          "prefix": "{{$s}}"
+          },
+          {{- end }}
+          {{- range $a, $s := .inclusionSuffix }}
+          {
+          "suffix": "{{$s}}"
+          },
+          {{- end }}
+          {{- range $a, $s := .inclusionRegexps }}
+          {
+          "safe_regex": {"regex":"{{js $s}}"}
+          },
+          {{- end }}
+          {
+          "prefix": "component"
+          },
+          {
+          "prefix": "istio"
+          }
+        ]
+      },
       "exclusion_list": {
         "patterns": [
           {
