@@ -144,16 +144,6 @@
           "prefix": "istio"
           }
         ]
-      },
-      "exclusion_list": {
-        "patterns": [
-          {
-            "prefix": "vhost"
-          },
-          {
-            "safe_regex": {"regex": "^http.*\\.rds\\..*", "google_re2":{}}
-          }
-        ]
       }
     }
   },  
