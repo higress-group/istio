@@ -244,11 +244,12 @@ func getStatsOptions(meta *model.BootstrapNodeMetadata) []option.Instance {
 	}
 	extraStatTags = removeDuplicates(extraStatTags)
 
-	var proxyConfigPrefixes, proxyConfigSuffixes, proxyConfigRegexps []string
+	var proxyConfigPrefixes, proxyConfigSuffixes, proxyConfigRegexps, proxyConfigExclusionRegexps []string
 	if config.ProxyStatsMatcher != nil {
 		proxyConfigPrefixes = config.ProxyStatsMatcher.InclusionPrefixes
 		proxyConfigSuffixes = config.ProxyStatsMatcher.InclusionSuffixes
 		proxyConfigRegexps = config.ProxyStatsMatcher.InclusionRegexps
+		proxyConfigExclusionRegexps = config.ProxyStatsMatcher.ExclusionRegexps
 	}
 	inclusionSuffixes := rbacEnvoyStatsMatcherInclusionSuffix
 	if meta.ExitOnZeroActiveConnections {
@@ -277,6 +278,7 @@ func getStatsOptions(meta *model.BootstrapNodeMetadata) []option.Instance {
 		option.EnvoyStatsMatcherInclusionSuffix(parseOption(suffixAnno,
 			inclusionSuffixes, proxyConfigSuffixes)),
 		option.EnvoyStatsMatcherInclusionRegexp(parseOption(RegexAnno, requiredEnvoyStatsMatcherInclusionRegexes, proxyConfigRegexps)),
+		option.EnvoyStatsMatcherExclusionRegexp(parseOption("", "", proxyConfigExclusionRegexps)),
 		option.EnvoyExtraStatTags(extraStatTags),
 		option.EnvoyHistogramBuckets(buckets),
 	}

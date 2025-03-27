@@ -217,6 +217,10 @@ func EnvoyStatsMatcherInclusionRegexp(value []string) Instance {
 	return newStringArrayOptionOrSkipIfEmpty("inclusionRegexps", value)
 }
 
+func EnvoyStatsMatcherExclusionRegexp(value []string) Instance {
+	return newStringArrayOptionOrSkipIfEmpty("exclusionRegexps", value)
+}
+
 func EnvoyStatusPort(value int) Instance {
 	return newOption("envoy_status_port", value)
 }
