@@ -115,18 +115,41 @@
       }
     ],
     "stats_matcher": {
-      "exclusion_list": {
+      "inclusion_list": {
         "patterns": [
           {
-            "prefix": "vhost"
+          "prefix": "reporter="
+          },
+          {{- if .metadata_discovery }}
+          {
+          "prefix": "workload_discovery"
+          },
+          {{- end }}
+          {{- range $a, $s := .inclusionPrefix }}
+          {
+          "prefix": "{{$s}}"
+          },
+          {{- end }}
+          {{- range $a, $s := .inclusionSuffix }}
+          {
+          "suffix": "{{$s}}"
+          },
+          {{- end }}
+          {{- range $a, $s := .inclusionRegexps }}
+          {
+          "safe_regex": {"regex":"{{js $s}}"}
+          },
+          {{- end }}
+          {
+          "prefix": "component"
           },
           {
-            "safe_regex": {"regex": "^http.*\\.rds\\..*", "google_re2":{}}
+          "prefix": "istio"
           }
         ]
       }
     }
-  },  
+  },
   "admin": {
     "access_log": [
       {
