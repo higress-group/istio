@@ -34,7 +34,7 @@ ARG TARGETARCH
 COPY ${TARGETARCH:-amd64}/${SIDECAR} /usr/local/bin/${SIDECAR}
 
 # Install MCP server Golang Filter
-COPY ${TARGETARCH:-amd64}/mcp-server_${TARGETARCH:-amd64}.so /var/lib/istio/envoy/mcp-server.so
+COPY ${TARGETARCH:-amd64}/golang-filter_${TARGETARCH:-amd64}.so /var/lib/istio/envoy/golang-filter.so
 
 # Environment variable indicating the exact proxy sha - for debugging or version-specific configs
 ENV ISTIO_META_ISTIO_PROXY_SHA $proxy_version

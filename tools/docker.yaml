@@ -36,7 +36,7 @@ images:
   - tools/packaging/common/higress_envoy_bootstrap_lite.json
   - tools/packaging/common/higress_envoy_bootstrap.json
   - ${TARGET_OUT_LINUX}/${RELEASE_MODE}/${SIDECAR}
-  - /home/package/mcp-server_${TARGET_ARCH}.so
+  - /home/package/golang-filter_${TARGET_ARCH}.so
   targets:
   - ${TARGET_OUT_LINUX}/pilot-agent
 - name: pilot
