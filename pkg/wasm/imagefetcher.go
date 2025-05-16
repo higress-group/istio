@@ -22,11 +22,6 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
-	"io"
-	"net/http"
-	"path/filepath"
-	"strings"
-
 	"github.com/docker/cli/cli/config/configfile"
 	dtypes "github.com/docker/cli/cli/config/types"
 	"github.com/google/go-containerregistry/pkg/authn"
@@ -35,6 +30,9 @@ import (
 	"github.com/google/go-containerregistry/pkg/v1/remote"
 	"github.com/google/go-containerregistry/pkg/v1/types"
 	"github.com/hashicorp/go-multierror"
+	"io"
+	"net/http"
+	"path/filepath"
 )
 
 // This file implements the fetcher of "Wasm Image Specification" compatible container images.
@@ -102,17 +100,32 @@ func (o *ImageFetcher) PrepareFetch(url string) (binaryFetcher func() ([]byte, e
 	// fallback to http based request, inspired by [helm](https://github.com/helm/helm/blob/12f1bc0acdeb675a8c50a78462ed3917fb7b2e37/pkg/registry/client.go#L594)
 	// only deal with https fallback instead of attributing all other type of errors to URL parsing error
 	desc, err := remote.Get(ref, o.fetchOpts...)
-	if err != nil && strings.Contains(err.Error(), "server gave HTTP response") {
-		wasmLog.Infof("fetching image with plain text from %s", url)
-		ref, err = name.ParseReference(url, name.Insecure)
-		if err == nil {
-			desc, err = remote.Get(ref, o.fetchOpts...)
-		}
-	}
-
 	if err != nil {
-		err = fmt.Errorf("could not fetch manifest: %v", err)
-		return
+		// Log the HTTPS error reason
+		wasmLog.Errorf("HTTPS request failed for URL %s: %v", url, err)
+
+		// Print decision log for fallback
+		wasmLog.Infof("Falling back to HTTP for URL: %s", url)
+
+		// Force HTTP by using the insecure option
+		ref, err = name.ParseReference(url, name.Insecure)
+		if err != nil {
+			err = fmt.Errorf("could not parse URL for HTTP fallback: %v", err)
+			wasmLog.Errorf("Error during HTTP fallback URL parsing: %v", err)
+			return
+		}
+
+		// Retry the request using HTTP
+		desc, err = remote.Get(ref, o.fetchOpts...)
+		if err != nil {
+			err = fmt.Errorf("HTTP fallback also failed: %v", err)
+			wasmLog.Errorf("Failed to fetch image using HTTP fallback: %v", err)
+			return
+		}
+
+		wasmLog.Infof("Successfully fetched image using HTTP fallback for URL: %s", url)
+	} else {
+		wasmLog.Infof("Successfully fetched image using HTTPS for URL: %s", url)
 	}
 
 	// Fetch image.
