@@ -103,7 +103,7 @@ func NewNamespaceController(kubeClient kube.Client, caBundleWatcher *keycertbund
 
 	c.namespaces = kclient.New[*v1.Namespace](kubeClient)
 	// kube-system is not skipped to enable deploying higress in that namespace
-	c.ignoredNamespaces = c.ignoredNamespaces.Copy().Delete(constants.KubeSystemNamespace)
+	c.ignoredNamespaces = inject.IgnoredNamespaces.Copy().Delete(constants.KubeSystemNamespace)
 	c.configmaps.AddEventHandler(controllers.FilteredObjectSpecHandler(c.queue.AddObject, func(o controllers.Object) bool {
 		// Add by ingress
 		if o.GetNamespace() != podNs {
@@ -111,7 +111,7 @@ func NewNamespaceController(kubeClient kube.Client, caBundleWatcher *keycertbund
 		}
 		// End add by ingress
 		// skip special kubernetes system namespaces
-		return !inject.IgnoredNamespaces.Contains(o.GetNamespace())
+		return !c.ignoredNamespaces.Contains(o.GetNamespace())
 	}))
 
 	if c.DiscoveryNamespacesFilter != nil {
