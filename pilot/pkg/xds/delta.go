@@ -31,6 +31,7 @@ import (
 	"istio.io/istio/pilot/pkg/model"
 	"istio.io/istio/pilot/pkg/networking/util"
 	v3 "istio.io/istio/pilot/pkg/xds/v3"
+	"istio.io/istio/pkg/channels"
 	istiolog "istio.io/istio/pkg/log"
 	"istio.io/istio/pkg/slices"
 	"istio.io/istio/pkg/util/sets"
@@ -110,17 +111,16 @@ func (s *DiscoveryServer) StreamDeltas(stream DeltaDiscoveryStream) error {
 		// For requests, these are higher priority (client may be blocked on startup until these are done)
 		// and often very cheap to handle (simple ACK), so we check it first.
 		select {
-		case req, ok := <-con.deltaReqChan:
-			if ok {
-				if err := s.processDeltaRequest(req, con); err != nil {
-					return err
-				}
-			} else {
-				// Remote side closed connection or error processing the request.
-				return <-con.errorChan
+		case req := <-con.deltaReqChan.Get():
+			if err := s.processDeltaRequest(req, con); err != nil {
+				return err
 			}
+			con.deltaReqChan.Load()
 		case <-con.stop:
 			return nil
+		case err := <-con.errorChan:
+			// Remote side closed connection or error processing the request.
+			return err
 		default:
 		}
 		// If there wasn't already a request, poll for requests and pushes. Note: if we have a huge
@@ -128,15 +128,11 @@ func (s *DiscoveryServer) StreamDeltas(stream DeltaDiscoveryStream) error {
 		// however, requests will be handled ~2x as much as pushes. This ensures a wave of requests
 		// cannot completely starve pushes. However, this scenario is unlikely.
 		select {
-		case req, ok := <-con.deltaReqChan:
-			if ok {
-				if err := s.processDeltaRequest(req, con); err != nil {
-					return err
-				}
-			} else {
-				// Remote side closed connection or error processing the request.
-				return <-con.errorChan
+		case req := <-con.deltaReqChan.Get():
+			if err := s.processDeltaRequest(req, con); err != nil {
+				return err
 			}
+			con.deltaReqChan.Load()
 		case pushEv := <-con.pushChannel:
 			err := s.pushConnectionDelta(con, pushEv)
 			pushEv.done()
@@ -145,6 +141,9 @@ func (s *DiscoveryServer) StreamDeltas(stream DeltaDiscoveryStream) error {
 			}
 		case <-con.stop:
 			return nil
+		case err := <-con.errorChan:
+			// Remote side closed connection or error processing the request.
+			return err
 		}
 	}
 }
@@ -187,7 +186,7 @@ func (s *DiscoveryServer) pushConnectionDelta(con *Connection, pushEv *Event) er
 
 func (s *DiscoveryServer) receiveDelta(con *Connection, identities []string) {
 	defer func() {
-		close(con.deltaReqChan)
+		// Note: Unbounded channel does not need to be closed
 		close(con.errorChan)
 		// Close the initialized channel, if its not already closed, to prevent blocking the stream
 		select {
@@ -229,11 +228,14 @@ func (s *DiscoveryServer) receiveDelta(con *Connection, identities []string) {
 			deltaLog.Infof("ADS: new delta connection for node:%s", con.conID)
 		}
 
+		// Put never blocks - requests are buffered in the unbounded channel
+		con.deltaReqChan.Put(req)
+		// Check if the stream is done
 		select {
-		case con.deltaReqChan <- req:
 		case <-con.deltaStream.Context().Done():
 			deltaLog.Infof("ADS: %q %s terminated with stream closed", con.peerAddr, con.conID)
 			return
+		default:
 		}
 	}
 }
@@ -576,7 +578,7 @@ func newDeltaConnection(peerAddr string, stream DeltaDiscoveryStream) *Connectio
 		peerAddr:     peerAddr,
 		connectedAt:  time.Now(),
 		deltaStream:  stream,
-		deltaReqChan: make(chan *discovery.DeltaDiscoveryRequest, 1),
+		deltaReqChan: channels.NewUnbounded[*discovery.DeltaDiscoveryRequest](),
 		errorChan:    make(chan error, 1),
 	}
 }

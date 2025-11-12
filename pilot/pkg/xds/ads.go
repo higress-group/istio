@@ -34,6 +34,7 @@ import (
 	"istio.io/istio/pilot/pkg/networking/util"
 	labelutil "istio.io/istio/pilot/pkg/serviceregistry/util/label"
 	v3 "istio.io/istio/pilot/pkg/xds/v3"
+	"istio.io/istio/pkg/channels"
 	"istio.io/istio/pkg/cluster"
 	"istio.io/istio/pkg/config/schema/kind"
 	"istio.io/istio/pkg/env"
@@ -101,8 +102,16 @@ type Connection struct {
 	stop chan struct{}
 
 	// reqChan is used to receive discovery requests for this connection.
-	reqChan      chan *discovery.DiscoveryRequest
-	deltaReqChan chan *discovery.DeltaDiscoveryRequest
+	// Using unbounded channel to prevent deadlock caused by HTTP2 flow control.
+	// The gRPC system produces a natural looping of Recv and Send. Due to backpressure
+	// introduced by gRPC natively (that is, Send() can only send so much data without
+	// being Recv'd before it starts blocking), along with the backpressure provided by
+	// buffered channels, we have a risk of deadlock where both client and server are
+	// trying to Send, but both are blocked by gRPC backpressure until Recv() is called.
+	// However, Recv can fail to be called by Send being blocked.
+	// See https://github.com/istio/istio/issues/39209 for more information.
+	reqChan      *channels.Unbounded[*discovery.DiscoveryRequest]
+	deltaReqChan *channels.Unbounded[*discovery.DeltaDiscoveryRequest]
 
 	// errorChan is used to process error during discovery request processing.
 	errorChan chan error
@@ -122,7 +131,7 @@ func newConnection(peerAddr string, stream DiscoveryStream) *Connection {
 		pushChannel: make(chan *Event),
 		initialized: make(chan struct{}),
 		stop:        make(chan struct{}),
-		reqChan:     make(chan *discovery.DiscoveryRequest, 1),
+		reqChan:     channels.NewUnbounded[*discovery.DiscoveryRequest](),
 		errorChan:   make(chan error, 1),
 		peerAddr:    peerAddr,
 		connectedAt: time.Now(),
@@ -133,7 +142,7 @@ func newConnection(peerAddr string, stream DiscoveryStream) *Connection {
 func (s *DiscoveryServer) receive(con *Connection, identities []string) {
 	defer func() {
 		close(con.errorChan)
-		close(con.reqChan)
+		// Note: Unbounded channel does not need to be closed
 		// Close the initialized channel, if its not already closed, to prevent blocking the stream.
 		select {
 		case <-con.initialized:
@@ -175,11 +184,14 @@ func (s *DiscoveryServer) receive(con *Connection, identities []string) {
 			log.Infof("ADS: new connection for node:%s", con.conID)
 		}
 
+		// Put never blocks - requests are buffered in the unbounded channel
+		con.reqChan.Put(req)
+		// Check if the stream is done
 		select {
-		case con.reqChan <- req:
 		case <-con.stream.Context().Done():
 			log.Infof("ADS: %q %s terminated with stream closed", con.peerAddr, con.conID)
 			return
+		default:
 		}
 	}
 }
@@ -309,17 +321,16 @@ func (s *DiscoveryServer) Stream(stream DiscoveryStream) error {
 		// For requests, these are higher priority (client may be blocked on startup until these are done)
 		// and often very cheap to handle (simple ACK), so we check it first.
 		select {
-		case req, ok := <-con.reqChan:
-			if ok {
-				if err := s.processRequest(req, con); err != nil {
-					return err
-				}
-			} else {
-				// Remote side closed connection or error processing the request.
-				return <-con.errorChan
+		case req := <-con.reqChan.Get():
+			if err := s.processRequest(req, con); err != nil {
+				return err
 			}
+			con.reqChan.Load()
 		case <-con.stop:
 			return nil
+		case err := <-con.errorChan:
+			// Remote side closed connection or error processing the request.
+			return err
 		default:
 		}
 		// If there wasn't already a request, poll for requests and pushes. Note: if we have a huge
@@ -327,15 +338,11 @@ func (s *DiscoveryServer) Stream(stream DiscoveryStream) error {
 		// however, requests will be handled ~2x as much as pushes. This ensures a wave of requests
 		// cannot completely starve pushes. However, this scenario is unlikely.
 		select {
-		case req, ok := <-con.reqChan:
-			if ok {
-				if err := s.processRequest(req, con); err != nil {
-					return err
-				}
-			} else {
-				// Remote side closed connection or error processing the request.
-				return <-con.errorChan
+		case req := <-con.reqChan.Get():
+			if err := s.processRequest(req, con); err != nil {
+				return err
 			}
+			con.reqChan.Load()
 		case pushEv := <-con.pushChannel:
 			err := s.pushConnection(con, pushEv)
 			pushEv.done()
@@ -344,6 +351,9 @@ func (s *DiscoveryServer) Stream(stream DiscoveryStream) error {
 			}
 		case <-con.stop:
 			return nil
+		case err := <-con.errorChan:
+			// Remote side closed connection or error processing the request.
+			return err
 		}
 	}
 }
