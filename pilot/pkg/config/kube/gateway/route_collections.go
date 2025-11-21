@@ -17,12 +17,13 @@ package gateway
 import (
 	"fmt"
 	"iter"
+	"strconv"
 	"strings"
 
 	"go.uber.org/atomic"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
-	inferencev1alpha2 "sigs.k8s.io/gateway-api-inference-extension/api/v1alpha2"
+	inferencev1 "sigs.k8s.io/gateway-api-inference-extension/api/v1"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 	gatewayalpha "sigs.k8s.io/gateway-api/apis/v1alpha2"
 	gateway "sigs.k8s.io/gateway-api/apis/v1beta1"
@@ -38,7 +39,21 @@ import (
 	"istio.io/istio/pkg/kube/krt"
 	"istio.io/istio/pkg/ptr"
 	"istio.io/istio/pkg/slices"
+	"istio.io/istio/pkg/util/sets"
 )
+
+type AncestorBackend struct {
+	Gateway types.NamespacedName
+	Backend TypedNamespacedName
+}
+
+func (a AncestorBackend) Equals(other AncestorBackend) bool {
+	return a.Gateway == other.Gateway && a.Backend == other.Backend
+}
+
+func (a AncestorBackend) ResourceName() string {
+	return a.Gateway.String() + "/" + a.Backend.String()
+}
 
 func HTTPRouteCollection(
 	httpRoutes krt.Collection[*gateway.HTTPRoute],
@@ -46,6 +61,11 @@ func HTTPRouteCollection(
 	opts krt.OptionsBuilder,
 ) RouteResult[*gateway.HTTPRoute, gateway.HTTPRouteStatus] {
 	routeCount := gatewayRouteAttachmentCountCollection(inputs, httpRoutes, gvk.HTTPRoute, opts)
+	ancestorBackends := krt.NewManyCollection(httpRoutes, func(krtctx krt.HandlerContext, obj *gateway.HTTPRoute) []AncestorBackend {
+		return extractAncestorBackends(obj.Namespace, obj.Spec.ParentRefs, obj.Spec.Rules, func(r gateway.HTTPRouteRule) []gateway.HTTPBackendRef {
+			return r.BackendRefs
+		})
+	}, opts.WithName("HTTPAncestors")...)
 	status, baseVirtualServices := krt.NewStatusManyCollection(httpRoutes, func(krtctx krt.HandlerContext, obj *gateway.HTTPRoute) (
 		*gateway.HTTPRouteStatus,
 		[]RouteWithKey,
@@ -105,7 +125,7 @@ func HTTPRouteCollection(
 				routeKey = obj.Namespace
 				if parent.OriginalReference.Port != nil {
 					routes = augmentPortMatch(routes, *parent.OriginalReference.Port)
-					routeKey += fmt.Sprintf("/%d", *parent.OriginalReference.Port)
+					routeKey += "/" + strconv.Itoa(int(*parent.OriginalReference.Port))
 				}
 				ref := types.NamespacedName{
 					Namespace: string(ptr.OrDefault(parent.OriginalReference.Namespace, gateway.Namespace(obj.Namespace))),
@@ -120,8 +140,12 @@ func HTTPRouteCollection(
 						vsHosts = []string{}
 					}
 				} else {
-					vsHosts = []string{fmt.Sprintf("%s.%s.svc.%s",
-						parent.OriginalReference.Name, ptr.OrDefault(parent.OriginalReference.Namespace, gateway.Namespace(obj.Namespace)), ctx.DomainSuffix)}
+					vsHosts = []string{
+						string(parent.OriginalReference.Name) +
+							"." +
+							string(ptr.OrDefault(parent.OriginalReference.Namespace, gateway.Namespace(obj.Namespace))) +
+							".svc." + ctx.DomainSuffix,
+					}
 				}
 			}
 			if len(routes) == 0 {
@@ -134,7 +158,7 @@ func HTTPRouteCollection(
 					// TODO: standardize a status message for this upstream and report
 					continue
 				}
-				name := fmt.Sprintf("%s-%d-%s", obj.Name, count, constants.KubernetesGatewayName)
+				name := obj.Name + "~" + strconv.Itoa(count) + "~" + constants.KubernetesGatewayName
 				sortHTTPRoutes(routes)
 
 				// Populate Extra field for inference pool configs
@@ -145,7 +169,7 @@ func HTTPRouteCollection(
 						currentRouteInferenceConfigs[httpRule.Name] = kube.InferencePoolRouteRuleConfig{
 							FQDN:             ipCfg.endpointPickerDst,
 							Port:             ipCfg.endpointPickerPort,
-							FailureModeAllow: ipCfg.endpointPickerFailureMode == string(inferencev1alpha2.FailOpen),
+							FailureModeAllow: ipCfg.endpointPickerFailureMode == string(inferencev1.EndpointPickerFailOpen),
 						}
 					}
 				}
@@ -184,7 +208,52 @@ func HTTPRouteCollection(
 		VirtualServices:  finalVirtualServices,
 		RouteAttachments: routeCount,
 		Status:           status,
+		Ancestors:        ancestorBackends,
 	}
+}
+
+func extractAncestorBackends[RT, BT any](ns string, prefs []gateway.ParentReference, rules []RT, extract func(RT) []BT) []AncestorBackend {
+	gateways := sets.Set[types.NamespacedName]{}
+	for _, r := range prefs {
+		ref := normalizeReference(r.Group, r.Kind, gvk.KubernetesGateway)
+		if ref != gvk.KubernetesGateway {
+			continue
+		}
+		gateways.Insert(types.NamespacedName{
+			Namespace: defaultString(r.Namespace, ns),
+			Name:      string(r.Name),
+		})
+	}
+	backends := sets.Set[TypedNamespacedName]{}
+	for _, r := range rules {
+		for _, b := range extract(r) {
+			ref, refNs, refName := GetBackendRef(b)
+			k, ok := gvk.ToKind(ref)
+			if !ok {
+				continue
+			}
+			be := TypedNamespacedName{
+				NamespacedName: types.NamespacedName{
+					Namespace: defaultString(refNs, ns),
+					Name:      string(refName),
+				},
+				Kind: k,
+			}
+			backends.Insert(be)
+		}
+	}
+	gtw := slices.SortBy(gateways.UnsortedList(), types.NamespacedName.String)
+	bes := slices.SortBy(backends.UnsortedList(), TypedNamespacedName.String)
+	res := make([]AncestorBackend, 0, len(gtw)*len(bes))
+	for _, gw := range gtw {
+		for _, be := range bes {
+			res = append(res, AncestorBackend{
+				Gateway: gw,
+				Backend: be,
+			})
+		}
+	}
+	return res
 }
 
 type conversionResult[O any] struct {
@@ -198,6 +267,11 @@ func GRPCRouteCollection(
 	opts krt.OptionsBuilder,
 ) RouteResult[*gatewayv1.GRPCRoute, gatewayv1.GRPCRouteStatus] {
 	routeCount := gatewayRouteAttachmentCountCollection(inputs, grpcRoutes, gvk.GRPCRoute, opts)
+	ancestorBackends := krt.NewManyCollection(grpcRoutes, func(krtctx krt.HandlerContext, obj *gatewayv1.GRPCRoute) []AncestorBackend {
+		return extractAncestorBackends(obj.Namespace, obj.Spec.ParentRefs, obj.Spec.Rules, func(r gatewayv1.GRPCRouteRule) []gatewayv1.GRPCBackendRef {
+			return r.BackendRefs
+		})
+	}, opts.WithName("GRPCAncestors")...)
 	status, baseVirtualServices := krt.NewStatusManyCollection(grpcRoutes, func(krtctx krt.HandlerContext, obj *gatewayv1.GRPCRoute) (
 		*gatewayv1.GRPCRouteStatus,
 		[]RouteWithKey,
@@ -248,7 +322,7 @@ func GRPCRouteCollection(
 				routeKey = obj.Namespace
 				if parent.OriginalReference.Port != nil {
 					routes = augmentPortMatch(routes, *parent.OriginalReference.Port)
-					routeKey += fmt.Sprintf("/%d", *parent.OriginalReference.Port)
+					routeKey += "/" + strconv.Itoa(int(*parent.OriginalReference.Port))
 				}
 				ref := types.NamespacedName{
 					Namespace: string(ptr.OrDefault(parent.OriginalReference.Namespace, gateway.Namespace(obj.Namespace))),
@@ -277,7 +351,7 @@ func GRPCRouteCollection(
 					// TODO: standardize a status message for this upstream and report
 					continue
 				}
-				name := fmt.Sprintf("%s-%d-%s", obj.Name, count, constants.KubernetesGatewayName)
+				name := fmt.Sprintf("%s~%d~%s", obj.Name, count, constants.KubernetesGatewayName)
 				sortHTTPRoutes(routes)
 
 				// Populate Extra field for inference pool configs (if GRPCRoute supports them)
@@ -288,7 +362,7 @@ func GRPCRouteCollection(
 						currentRouteInferenceConfigs[httpRule.Name] = kube.InferencePoolRouteRuleConfig{
 							FQDN:             ipCfg.endpointPickerDst,
 							Port:             ipCfg.endpointPickerPort,
-							FailureModeAllow: ipCfg.endpointPickerFailureMode == string(inferencev1alpha2.FailOpen),
+							FailureModeAllow: ipCfg.endpointPickerFailureMode == string(inferencev1.EndpointPickerFailOpen),
 						}
 					}
 				}
@@ -327,6 +401,7 @@ func GRPCRouteCollection(
 		VirtualServices:  finalVirtualServices,
 		RouteAttachments: routeCount,
 		Status:           status,
+		Ancestors:        ancestorBackends,
 	}
 }
 
@@ -336,6 +411,11 @@ func TCPRouteCollection(
 	opts krt.OptionsBuilder,
 ) RouteResult[*gatewayalpha.TCPRoute, gatewayalpha.TCPRouteStatus] {
 	routeCount := gatewayRouteAttachmentCountCollection(inputs, tcpRoutes, gvk.TCPRoute, opts)
+	ancestorBackends := krt.NewManyCollection(tcpRoutes, func(krtctx krt.HandlerContext, obj *gatewayalpha.TCPRoute) []AncestorBackend {
+		return extractAncestorBackends(obj.Namespace, obj.Spec.ParentRefs, obj.Spec.Rules, func(r gatewayalpha.TCPRouteRule) []gateway.BackendRef {
+			return r.BackendRefs
+		})
+	}, opts.WithName("TCPAncestors")...)
 	status, virtualServices := krt.NewStatusManyCollection(tcpRoutes, func(krtctx krt.HandlerContext, obj *gatewayalpha.TCPRoute) (
 		*gatewayalpha.TCPRouteStatus,
 		[]*config.Config,
@@ -382,7 +462,7 @@ func TCPRouteCollection(
 				}
 			}
 			for _, host := range vsHosts {
-				name := fmt.Sprintf("%s-tcp-%d-%s", obj.Name, count, constants.KubernetesGatewayName)
+				name := fmt.Sprintf("%s~tcp~%d~%s", obj.Name, count, constants.KubernetesGatewayName)
 				// Create one VS per hostname with a single hostname.
 				// This ensures we can treat each hostname independently, as the spec requires
 				vs = append(vs, &config.Config{
@@ -412,6 +492,7 @@ func TCPRouteCollection(
 		VirtualServices:  virtualServices,
 		RouteAttachments: routeCount,
 		Status:           status,
+		Ancestors:        ancestorBackends,
 	}
 }
 
@@ -421,6 +502,11 @@ func TLSRouteCollection(
 	opts krt.OptionsBuilder,
 ) RouteResult[*gatewayalpha.TLSRoute, gatewayalpha.TLSRouteStatus] {
 	routeCount := gatewayRouteAttachmentCountCollection(inputs, tlsRoutes, gvk.TLSRoute, opts)
+	ancestorBackends := krt.NewManyCollection(tlsRoutes, func(krtctx krt.HandlerContext, obj *gatewayalpha.TLSRoute) []AncestorBackend {
+		return extractAncestorBackends(obj.Namespace, obj.Spec.ParentRefs, obj.Spec.Rules, func(r gatewayalpha.TLSRouteRule) []gateway.BackendRef {
+			return r.BackendRefs
+		})
+	}, opts.WithName("TLSAncestors")...)
 	status, virtualServices := krt.NewStatusManyCollection(tlsRoutes, func(krtctx krt.HandlerContext, obj *gatewayalpha.TLSRoute) (
 		*gatewayalpha.TLSRouteStatus,
 		[]*config.Config,
@@ -465,7 +551,7 @@ func TLSRouteCollection(
 				routes = augmentTLSPortMatch(routes, parent.OriginalReference.Port, vsHosts)
 			}
 			for _, host := range vsHosts {
-				name := fmt.Sprintf("%s-tls-%d-%s", obj.Name, count, constants.KubernetesGatewayName)
+				name := fmt.Sprintf("%s~tls~%d~%s", obj.Name, count, constants.KubernetesGatewayName)
 				filteredRoutes := routes
 				if parent.IsMesh() {
 					filteredRoutes = compatibleRoutesForHost(routes, host)
@@ -496,6 +582,7 @@ func TLSRouteCollection(
 		VirtualServices:  virtualServices,
 		RouteAttachments: routeCount,
 		Status:           status,
+		Ancestors:        ancestorBackends,
 	}
 }
 
@@ -563,7 +650,7 @@ type RouteContextInputs struct {
 	Services        krt.Collection[*corev1.Service]
 	Namespaces      krt.Collection[*corev1.Namespace]
 	ServiceEntries  krt.Collection[*networkingclient.ServiceEntry]
-	InferencePools  krt.Collection[*inferencev1alpha2.InferencePool]
+	InferencePools  krt.Collection[*inferencev1.InferencePool]
 	internalContext krt.RecomputeProtected[*atomic.Pointer[GatewayContext]]
 }
 
@@ -608,6 +695,8 @@ type RouteResult[I controllers.Object, IStatus any] struct {
 	RouteAttachments krt.Collection[RouteAttachment]
 	// Status stores the status reports for the incoming object
 	Status krt.StatusCollection[I, IStatus]
+	// Ancestors stores information about Gateway --> Backend references
+	Ancestors krt.Collection[AncestorBackend]
 }
 
 type RouteAttachment struct {

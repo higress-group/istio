@@ -73,6 +73,8 @@ func NewIndex[K comparable, O any](
 	}
 }
 
+type IndexCollection[K comparable, O any] = Collection[IndexObject[K, O]]
+
 type index[K comparable, O any] struct {
 	uid collectionUID
 	indexer[O]
