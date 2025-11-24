@@ -322,7 +322,7 @@ var (
 		Kind:       "InferencePool",
 		Plural:     "inferencepools",
 		Version:    "v1",
-		Proto:      "x-k8s.io.gateway-api-inference-extension.api.v1.InferencePoolSpec", StatusProto: "x-k8s.io.gateway-api-inference-extension.api.v1.InferencePoolStatus",
+		Proto:      "k8s.io.gateway-api-inference-extension.api.v1.InferencePoolSpec", StatusProto: "k8s.io.gateway-api-inference-extension.api.v1.InferencePoolStatus",
 		ReflectType: reflect.TypeOf(&sigsk8siogatewayapiinferenceextensionapiv1.InferencePoolSpec{}).Elem(), StatusType: reflect.TypeOf(&sigsk8siogatewayapiinferenceextensionapiv1.InferencePoolStatus{}).Elem(),
 		ProtoPackage: "sigs.k8s.io/gateway-api-inference-extension/api/v1", StatusPackage: "sigs.k8s.io/gateway-api-inference-extension/api/v1",
 		ClusterScoped: false,
