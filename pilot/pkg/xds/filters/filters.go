@@ -19,6 +19,8 @@ import (
 	core "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	listener "github.com/envoyproxy/go-control-plane/envoy/config/listener/v3"
 	route "github.com/envoyproxy/go-control-plane/envoy/config/route/v3"
+	extproc "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/ext_proc/v3"
+	"google.golang.org/protobuf/types/known/durationpb"
 	//sfsvalue "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/common/set_filter_state/v3"
 	cors "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/cors/v3"
 	fault "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/fault/v3"
@@ -176,36 +178,38 @@ var (
 			TypedConfig: protoconv.MessageToAny(&statefulsession.StatefulSession{}),
 		},
 	}
-	// Delete by ingress, wait for go-control-plane to support
-	//InferencePoolExtProc = &hcm.HttpFilter{
-	//	Name: wellknown.HTTPExternalProcessing,
-	//	ConfigType: &hcm.HttpFilter_TypedConfig{
-	//		TypedConfig: protoconv.MessageToAny(&extproc.ExternalProcessor{
-	//			GrpcService: &core.GrpcService{
-	//				TargetSpecifier: &core.GrpcService_EnvoyGrpc_{
-	//					EnvoyGrpc: &core.GrpcService_EnvoyGrpc{
-	//						ClusterName: "dummy",
-	//					},
-	//				},
-	//				Timeout: &durationpb.Duration{Seconds: 10},
-	//			},
-	//			FailureModeAllow: true,
-	//			ProcessingMode: &extproc.ProcessingMode{
-	//				RequestHeaderMode:  extproc.ProcessingMode_SKIP,
-	//				ResponseHeaderMode: extproc.ProcessingMode_SKIP,
-	//			},
-	//			MessageTimeout: &durationpb.Duration{Seconds: 1000},
-	//			MetadataOptions: &extproc.MetadataOptions{
-	//				ReceivingNamespaces: &extproc.MetadataOptions_MetadataNamespaces{
-	//					Untyped: []string{constants.EnvoySubsetNamespace},
-	//				},
-	//				ForwardingNamespaces: &extproc.MetadataOptions_MetadataNamespaces{
-	//					Untyped: []string{constants.EnvoySubsetNamespace},
-	//				},
-	//			},
-	//		}),
-	//	},
-	//}
+	InferencePoolExtProc = &hcm.HttpFilter{
+		Name: wellknown.HTTPExternalProcessing,
+		ConfigType: &hcm.HttpFilter_TypedConfig{
+			TypedConfig: protoconv.MessageToAny(&extproc.ExternalProcessor{
+				GrpcService: &core.GrpcService{
+					TargetSpecifier: &core.GrpcService_EnvoyGrpc_{
+						EnvoyGrpc: &core.GrpcService_EnvoyGrpc{
+							ClusterName: "dummy",
+						},
+					},
+					Timeout: &durationpb.Duration{Seconds: 10},
+				},
+				FailureModeAllow: true,
+				ProcessingMode: &extproc.ProcessingMode{
+					RequestHeaderMode:  extproc.ProcessingMode_SKIP,
+					ResponseHeaderMode: extproc.ProcessingMode_SKIP,
+				},
+				MessageTimeout: &durationpb.Duration{Seconds: 1000},
+				// Start - Updated by Higress
+				// todo: wait for updating envoy and go-control-plane
+				//MetadataOptions: &extproc.MetadataOptions{
+				//	ReceivingNamespaces: &extproc.MetadataOptions_MetadataNamespaces{
+				//		Untyped: []string{constants.EnvoySubsetNamespace},
+				//	},
+				//	ForwardingNamespaces: &extproc.MetadataOptions_MetadataNamespaces{
+				//		Untyped: []string{constants.EnvoySubsetNamespace},
+				//	},
+				//},
+				// End - Updated by Higress
+			}),
+		},
+	}
 	Alpn = &hcm.HttpFilter{
 		Name: AlpnFilterName,
 		ConfigType: &hcm.HttpFilter_TypedConfig{

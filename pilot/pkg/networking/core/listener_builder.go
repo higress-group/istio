@@ -479,12 +479,11 @@ func (lb *ListenerBuilder) buildHTTPConnectionManager(httpOpts *httpListenerOpts
 		filters = extension.PopAppendHTTP(filters, wasm, extensions.PluginPhase_STATS)
 		filters = extension.PopAppendHTTP(filters, wasm, extensions.PluginPhase_UNSPECIFIED_PHASE)
 		// Add ExtProc per listener only if the Gateway has any inferencePool attached to it
-		//todo: wait go-control-plane to support
-		//if kubeGwName, ok := lb.node.Labels[label.IoK8sNetworkingGatewayGatewayName.Name]; ok {
-		//	if lb.push.GatewayAPIController.HasInferencePool(types.NamespacedName{Name: kubeGwName, Namespace: lb.node.GetNamespace()}) {
-		//		filters = append(filters, xdsfilters.InferencePoolExtProc)
-		//	}
-		//}
+		// Start - Updated by Higress
+		if features.EnableGatewayAPIInferenceExtension {
+			filters = append(filters, xdsfilters.InferencePoolExtProc)
+		}
+		// End - Updated by Higress
 	}
 
 	if httpOpts.protocol == protocol.GRPCWeb {

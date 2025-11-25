@@ -29,7 +29,7 @@ import (
 	route "github.com/envoyproxy/go-control-plane/envoy/config/route/v3"
 	xdsfault "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/common/fault/v3"
 	cors "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/cors/v3"
-	//extproc "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/ext_proc/v3"
+	extproc "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/ext_proc/v3"
 	xdshttpfault "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/fault/v3"
 	statefulsession "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/stateful_session/v3"
 	matcher "github.com/envoyproxy/go-control-plane/envoy/type/matcher/v3"
@@ -463,14 +463,14 @@ func BuildHTTPRoutesForVirtualServiceWithHTTPFilters(
 		if len(http.Match) == 0 {
 			if r := TranslateRoute(node, http, nil, listenPort, virtualService, gatewayNames, opts); r != nil {
 				out = append(out, r)
-				r.TypedPerFilterConfig = mseingress.ConstructTypedPerFilterConfigForRoute(globalHTTPFilters, virtualService, http)
+				r.TypedPerFilterConfig = mseingress.ConstructTypedPerFilterConfigForRoute(globalHTTPFilters, r.TypedPerFilterConfig, http)
 			}
 			catchall = true
 		} else {
 			for _, match := range http.Match {
 				if r := TranslateRoute(node, http, match, listenPort, virtualService, gatewayNames, opts); r != nil {
 					out = append(out, r)
-					r.TypedPerFilterConfig = mseingress.ConstructTypedPerFilterConfigForRoute(globalHTTPFilters, virtualService, http)
+					r.TypedPerFilterConfig = mseingress.ConstructTypedPerFilterConfigForRoute(globalHTTPFilters, r.TypedPerFilterConfig, http)
 					// This is a catch all path. Routes are matched in order, so we will never go beyond this match
 					// As an optimization, we can just top sending any more routes here.
 					if isCatchAllMatch(match) {
@@ -562,36 +562,40 @@ func TranslateRoute(
 	}
 
 	var hostnames []host.Name
-	//if infPoolRouteRuleCfg, ok := opts.InferencePoolExtensionRefs[in.Name]; ok {
-	//	// This route has an inference pool config, set up ext_proc
-	//	extSvcHost := host.Name(infPoolRouteRuleCfg.FQDN)
-	//	extPortNum, _ := strconv.Atoi(infPoolRouteRuleCfg.Port)
-	//	if out.TypedPerFilterConfig == nil {
-	//		out.TypedPerFilterConfig = make(map[string]*anypb.Any)
-	//	}
-	//	out.TypedPerFilterConfig[wellknown.HTTPExternalProcessing] = protoconv.MessageToAny(&extproc.ExtProcPerRoute{
-	//		Override: &extproc.ExtProcPerRoute_Overrides{
-	//			Overrides: &extproc.ExtProcOverrides{
-	//				FailureModeAllow: &wrapperspb.BoolValue{Value: infPoolRouteRuleCfg.FailureModeAllow},
-	//				GrpcService: &core.GrpcService{
-	//					TargetSpecifier: &core.GrpcService_EnvoyGrpc_{
-	//						EnvoyGrpc: &core.GrpcService_EnvoyGrpc{
-	//							ClusterName: model.BuildSubsetKey(model.TrafficDirectionOutbound, "", extSvcHost, extPortNum),
-	//						},
-	//					},
-	//				},
-	//				ProcessingMode: &extproc.ProcessingMode{
-	//					RequestHeaderMode: extproc.ProcessingMode_SEND,
-	//					// open AI standard includes the model and other information the ext_proc server needs in the request body
-	//					RequestBodyMode:    extproc.ProcessingMode_FULL_DUPLEX_STREAMED,
-	//					ResponseHeaderMode: extproc.ProcessingMode_SEND,
-	//					// GIE collects statistics present in the open AI standard response message
-	//					ResponseBodyMode: extproc.ProcessingMode_FULL_DUPLEX_STREAMED,
-	//				},
-	//			},
-	//		},
-	//	})
-	//}
+	if infPoolRouteRuleCfg, ok := opts.InferencePoolExtensionRefs[in.Name]; ok {
+		log.Infof("[TranslateRoute] inference pool route rule: %+v, route name: %s", infPoolRouteRuleCfg, in.Name)
+		// This route has an inference pool config, set up ext_proc
+		extSvcHost := host.Name(infPoolRouteRuleCfg.FQDN)
+		extPortNum, _ := strconv.Atoi(infPoolRouteRuleCfg.Port)
+		if out.TypedPerFilterConfig == nil {
+			out.TypedPerFilterConfig = make(map[string]*anypb.Any)
+		}
+		out.TypedPerFilterConfig[wellknown.HTTPExternalProcessing] = protoconv.MessageToAny(&extproc.ExtProcPerRoute{
+			Override: &extproc.ExtProcPerRoute_Overrides{
+				Overrides: &extproc.ExtProcOverrides{
+					// todo: wait for updating envoy and go-control-plane
+					//FailureModeAllow: &wrapperspb.BoolValue{Value: infPoolRouteRuleCfg.FailureModeAllow},
+					GrpcService: &core.GrpcService{
+						TargetSpecifier: &core.GrpcService_EnvoyGrpc_{
+							EnvoyGrpc: &core.GrpcService_EnvoyGrpc{
+								ClusterName: model.BuildSubsetKey(model.TrafficDirectionOutbound, "", extSvcHost, extPortNum),
+							},
+						},
+					},
+					ProcessingMode: &extproc.ProcessingMode{
+						RequestHeaderMode: extproc.ProcessingMode_SEND,
+						// open AI standard includes the model and other information the ext_proc server needs in the request body
+						// todo: wait for updating envoy and go-control-plane
+						//RequestBodyMode:    extproc.ProcessingMode_FULL_DUPLEX_STREAMED,
+						ResponseHeaderMode: extproc.ProcessingMode_SEND,
+						// GIE collects statistics present in the open AI standard response message
+						// todo: wait for updating envoy and go-control-plane
+						//ResponseBodyMode: extproc.ProcessingMode_FULL_DUPLEX_STREAMED,
+					},
+				},
+			},
+		})
+	}
 
 	// Update by ingress
 	if redirect := in.Redirect; redirect != nil && !IgnoreRedirect(redirect, opts.IsTLS) {
@@ -606,7 +610,11 @@ func TranslateRoute(
 		Operation: GetRouteOperation(out, virtualService.Name, listenPort),
 	}
 	if in.Fault != nil || in.CorsPolicy != nil {
-		out.TypedPerFilterConfig = make(map[string]*anypb.Any)
+		// Start - Updated by Higress
+		if out.TypedPerFilterConfig == nil {
+			out.TypedPerFilterConfig = make(map[string]*anypb.Any)
+		}
+		// End - Updated by Higress
 	}
 	if in.Fault != nil {
 		out.TypedPerFilterConfig[wellknown.Fault] = protoconv.MessageToAny(TranslateFault(in.Fault))
@@ -1861,8 +1869,10 @@ func cutPrefix(s, prefix string) (after string, found bool) {
 // CheckAndGetInferencePoolConfigs extracts inference pool configurations from a VirtualService's Extra field.
 // The expected structure in Extra is map[string]model.InferencePoolRouteRuleConfig.
 func CheckAndGetInferencePoolConfigs(virtualService config.Config) map[string]kube.InferencePoolRouteRuleConfig {
+	log.Infof("[CheckAndGetInferencePoolConfigs] virtualservice: %v", virtualService.Extra)
 	if virtualService.Extra != nil {
 		if infPoolConfigs, ok := virtualService.Extra[constants.ConfigExtraPerRouteRuleInferencePoolConfigs].(map[string]kube.InferencePoolRouteRuleConfig); ok {
+			log.Infof("[CheckAndGetInferencePoolConfigs] found inference pool configs: %v", infPoolConfigs)
 			return infPoolConfigs
 		}
 	}

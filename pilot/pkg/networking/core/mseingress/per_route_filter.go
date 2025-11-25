@@ -56,13 +56,20 @@ func ConstructTypedPerFilterConfigForVHost(globalHTTPFilters *GlobalHTTPFilters,
 	return doBuildTypedPerFilterConfig(globalHTTPFilters, vs.HostHTTPFilters)
 }
 
-func ConstructTypedPerFilterConfigForRoute(globalHTTPFilters *GlobalHTTPFilters, _ config.Config, route *networking.HTTPRoute) map[string]*any.Any {
+func ConstructTypedPerFilterConfigForRoute(globalHTTPFilters *GlobalHTTPFilters, typePerConfig map[string]*any.Any, route *networking.HTTPRoute) map[string]*any.Any {
 	// If route has no explicitly http filter, skip to build and use the parent filters.
 	if len(route.RouteHTTPFilters) == 0 {
-		return nil
+		return typePerConfig
 	}
 
-	return doBuildTypedPerFilterConfig(globalHTTPFilters, route.RouteHTTPFilters)
+	buildConfig := doBuildTypedPerFilterConfig(globalHTTPFilters, route.RouteHTTPFilters)
+	for k, v := range typePerConfig {
+		if _, exist := buildConfig[k]; exist {
+		} else {
+			buildConfig[k] = v
+		}
+	}
+	return buildConfig
 }
 
 func doBuildTypedPerFilterConfig(globalHTTPFilters *GlobalHTTPFilters, configFilters []*networking.HTTPFilter) map[string]*any.Any {

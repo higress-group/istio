@@ -20,6 +20,8 @@ import (
 	"crypto/x509"
 	"encoding/json"
 	"fmt"
+	"google.golang.org/protobuf/encoding/protowire"
+	"istio.io/istio/pkg/config/gateway/kube"
 	"math"
 	"net"
 	"os"
@@ -596,6 +598,16 @@ func (a *ADSC) mcpToPilot(m *mcp.Resource) (*config.Config, error) {
 		return nil, err
 	}
 	c.Spec = pb
+
+	// Start - Added by Higress
+	// Extract Extra data from Resource's unknown fields
+	// todo: update proto to pass config.extra
+	if extra, err := extractExtraFromResourceUnknownFields(m); err == nil && len(extra) > 0 {
+		c.Extra = extra
+		adscLog.Infof("[mcpToPilot] Restored Extra data for %s/%s: %v", c.Namespace, c.Name, extra)
+	}
+	// Start - Added by Higress
+
 	return c, nil
 }
 
@@ -1220,3 +1232,106 @@ func (a *ADSC) handleMCP(groupVersionKind config.GroupVersionKind, resources []*
 		}
 	}
 }
+
+// Start - Added by Higress
+// extractExtraFromResourceUnknownFields extracts Extra data from Resource's unknown fields
+// Field number 100 is used to store the Extra data (same as in the sender side)
+func extractExtraFromResourceUnknownFields(resource *mcp.Resource) (map[string]any, error) {
+	const extraFieldNumber = 100
+
+	// Get unknown fields from Resource
+	resourceReflect := resource.ProtoReflect()
+	unknownData := resourceReflect.GetUnknown()
+
+	if len(unknownData) == 0 {
+		return nil, nil
+	}
+
+	adscLog.Debugf("[extractExtraFromResourceUnknownFields] Processing unknown fields (%d bytes) for resource: %s",
+		len(unknownData), resource.Metadata.Name)
+	adscLog.Debugf("[extractExtraFromResourceUnknownFields] Unknown fields (hex): %x", unknownData)
+
+	// Parse unknown fields to find our Extra data
+	var extraJSON []byte
+	offset := 0
+	for offset < len(unknownData) {
+		// Read tag (field number + wire type)
+		tag, n := protowire.ConsumeVarint(unknownData[offset:])
+		if n < 0 {
+			adscLog.Warnf("[extractExtraFromResourceUnknownFields] Failed to consume varint at offset %d", offset)
+			break
+		}
+		offset += n
+
+		fieldNum := protowire.Number(tag >> 3)
+		wireType := protowire.Type(tag & 7)
+
+		adscLog.Debugf("[extractExtraFromResourceUnknownFields] Found field %d, wire type %d", fieldNum, wireType)
+
+		// Find our Extra field
+		if fieldNum == extraFieldNumber && wireType == protowire.BytesType {
+			// Read length-delimited data
+			data, n := protowire.ConsumeBytes(unknownData[offset:])
+			if n < 0 {
+				adscLog.Warnf("[extractExtraFromResourceUnknownFields] Failed to consume bytes for field %d", extraFieldNumber)
+				break
+			}
+			extraJSON = data
+			adscLog.Infof("[extractExtraFromResourceUnknownFields] Found Extra field (field %d), size: %d bytes",
+				extraFieldNumber, len(extraJSON))
+			break
+		}
+
+		// Skip other fields
+		n = protowire.ConsumeFieldValue(fieldNum, wireType, unknownData[offset:])
+		if n < 0 {
+			adscLog.Warnf("[extractExtraFromResourceUnknownFields] Failed to skip field %d", fieldNum)
+			break
+		}
+		offset += n
+	}
+
+	if len(extraJSON) == 0 {
+		adscLog.Debugf("[extractExtraFromResourceUnknownFields] No Extra field found in unknown fields")
+		return nil, nil
+	}
+
+	// Deserialize JSON to map[string]any
+	var extra map[string]any
+	if err := json.Unmarshal(extraJSON, &extra); err != nil {
+		adscLog.Warnf("[extractExtraFromResourceUnknownFields] Failed to unmarshal Extra JSON: %v", err)
+		return nil, err
+	}
+
+	adscLog.Debugf("[extractExtraFromResourceUnknownFields] Successfully extracted Extra data: %v", extra)
+	adscLog.Debugf("[extractExtraFromResourceUnknownFields] Extra JSON: %s", string(extraJSON))
+
+	// Convert inference pool configs from map[string]interface{} to map[string]kube.InferencePoolRouteRuleConfig
+	if rawConfigs, ok := extra[constants.ConfigExtraPerRouteRuleInferencePoolConfigs].(map[string]interface{}); ok {
+		adscLog.Debugf("[extractExtraFromResourceUnknownFields] Converting inference pool configs from map[string]interface{}")
+		typedConfigs := make(map[string]kube.InferencePoolRouteRuleConfig)
+		for routeName, rawConfig := range rawConfigs {
+			if configMap, ok := rawConfig.(map[string]interface{}); ok {
+				config := kube.InferencePoolRouteRuleConfig{}
+				if fqdn, ok := configMap["FQDN"].(string); ok {
+					config.FQDN = fqdn
+				}
+				if port, ok := configMap["Port"].(string); ok {
+					config.Port = port
+				}
+				if failureMode, ok := configMap["FailureModeAllow"].(bool); ok {
+					config.FailureModeAllow = failureMode
+				}
+				typedConfigs[routeName] = config
+				adscLog.Debugf("[extractExtraFromResourceUnknownFields] Converted config for route %s: %+v", routeName, config)
+			}
+		}
+		// Replace the raw map with typed map
+		extra[constants.ConfigExtraPerRouteRuleInferencePoolConfigs] = typedConfigs
+		adscLog.Debugf("[extractExtraFromResourceUnknownFields] Successfully converted %d inference pool configs", len(typedConfigs))
+	}
+
+	return extra, nil
+}
+
+// End - Added by Higress
