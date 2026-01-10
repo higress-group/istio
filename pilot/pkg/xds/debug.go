@@ -234,13 +234,13 @@ func (s *DiscoveryServer) addDebugHandler(mux *http.ServeMux, internalMux *http.
 	}
 	handlerFunc := http.HandlerFunc(handler)
 	if features.DebugAuth {
-		handlerFunc = s.allowAuthenticatedOrLocalhost(handlerFunc)
+		handlerFunc = s.AllowAuthenticatedOrLocalhost(handlerFunc)
 	}
 	// Add handler with auth; this is expose on an HTTP server
 	mux.HandleFunc(path, handlerFunc)
 }
 
-func (s *DiscoveryServer) allowAuthenticatedOrLocalhost(next http.Handler) http.HandlerFunc {
+func (s *DiscoveryServer) AllowAuthenticatedOrLocalhost(next http.Handler) http.HandlerFunc {
 	return func(w http.ResponseWriter, req *http.Request) {
 		// Request is from localhost, no need to authenticate
 		if isRequestFromLocalhost(req) {
