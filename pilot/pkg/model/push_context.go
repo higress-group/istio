@@ -2284,6 +2284,28 @@ func (ps *PushContext) WasmPluginsByListenerInfo(proxy *Proxy, info WasmPluginLi
 	return matchedPlugins
 }
 
+func envoyFilterHasWasmPhase(filter *networking.EnvoyFilter) bool {
+	if filter == nil {
+		return false
+	}
+	return filter.WasmPhase != extensions.PluginPhase_UNSPECIFIED_PHASE
+}
+
+func envoyFilterPhaseOrder(phase extensions.PluginPhase) int {
+	switch phase {
+	case extensions.PluginPhase_AUTHN:
+		return 0
+	case extensions.PluginPhase_AUTHZ:
+		return 1
+	case extensions.PluginPhase_STATS:
+		return 2
+	case extensions.PluginPhase_UNSPECIFIED_PHASE:
+		return 3
+	default:
+		return 3
+	}
+}
+
 // pre computes envoy filters per namespace
 func (ps *PushContext) initEnvoyFilters(env *Environment, changed sets.Set[ConfigKey], previousIndex map[string][]*EnvoyFilterWrapper) {
 	envoyFilterConfigs := env.List(gvk.EnvoyFilter, NamespaceAll)
@@ -2297,6 +2319,23 @@ func (ps *PushContext) initEnvoyFilters(env *Environment, changed sets.Set[Confi
 	sort.Slice(envoyFilterConfigs, func(i, j int) bool {
 		ifilter := envoyFilterConfigs[i].Spec.(*networking.EnvoyFilter)
 		jfilter := envoyFilterConfigs[j].Spec.(*networking.EnvoyFilter)
+		iHasWasmPhase := envoyFilterHasWasmPhase(ifilter)
+		jHasWasmPhase := envoyFilterHasWasmPhase(jfilter)
+
+		if iHasWasmPhase && jHasWasmPhase {
+			if ifilter.WasmPhase != jfilter.WasmPhase {
+				return envoyFilterPhaseOrder(ifilter.WasmPhase) < envoyFilterPhaseOrder(jfilter.WasmPhase)
+			}
+			if ifilter.WasmPriority != jfilter.WasmPriority {
+				return ifilter.WasmPriority > jfilter.WasmPriority
+			}
+		}
+		if iHasWasmPhase && !jHasWasmPhase {
+			return true
+		}
+		if !iHasWasmPhase && jHasWasmPhase {
+			return false
+		}
 		if ifilter.Priority != jfilter.Priority {
 			return ifilter.Priority < jfilter.Priority
 		}
@@ -2357,6 +2396,31 @@ func (ps *PushContext) EnvoyFilters(proxy *Proxy) *MergedEnvoyFilterWrapper {
 	sort.Slice(matchedEnvoyFilters, func(i, j int) bool {
 		ifilter := matchedEnvoyFilters[i]
 		jfilter := matchedEnvoyFilters[j]
+		var ifilterSpec *networking.EnvoyFilter
+		var jfilterSpec *networking.EnvoyFilter
+		if ifilter != nil {
+			ifilterSpec = ifilter.fullSpec
+		}
+		if jfilter != nil {
+			jfilterSpec = jfilter.fullSpec
+		}
+		iHasWasmPhase := envoyFilterHasWasmPhase(ifilterSpec)
+		jHasWasmPhase := envoyFilterHasWasmPhase(jfilterSpec)
+
+		if iHasWasmPhase && jHasWasmPhase {
+			if ifilterSpec.WasmPhase != jfilterSpec.WasmPhase {
+				return envoyFilterPhaseOrder(ifilterSpec.WasmPhase) < envoyFilterPhaseOrder(jfilterSpec.WasmPhase)
+			}
+			if ifilterSpec.WasmPriority != jfilterSpec.WasmPriority {
+				return ifilterSpec.WasmPriority > jfilterSpec.WasmPriority
+			}
+		}
+		if iHasWasmPhase && !jHasWasmPhase {
+			return true
+		}
+		if !iHasWasmPhase && jHasWasmPhase {
+			return false
+		}
 		if ifilter.Priority != jfilter.Priority {
 			return ifilter.Priority < jfilter.Priority
 		}

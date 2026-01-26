@@ -17,6 +17,7 @@ package envoyfilter
 import (
 	"fmt"
 	"istio.io/istio/pkg/config/xds"
+	"sort"
 	"strings"
 
 	listener "github.com/envoyproxy/go-control-plane/envoy/config/listener/v3"
@@ -24,6 +25,7 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
 
+	extensions "istio.io/api/extensions/v1alpha1"
 	networking "istio.io/api/networking/v1alpha3"
 	"istio.io/istio/pilot/pkg/model"
 	"istio.io/istio/pilot/pkg/networking/util"
@@ -448,7 +450,30 @@ func patchHTTPFilters(patchContext networking.EnvoyFilter_PatchContext,
 			//  as this loop will be called very frequently
 		}
 	}
-	for _, lp := range patches[networking.EnvoyFilter_HTTP_FILTER] {
+	httpPatches := patches[networking.EnvoyFilter_HTTP_FILTER]
+	sort.SliceStable(httpPatches, func(i, j int) bool {
+		ip := httpPatches[i]
+		jp := httpPatches[j]
+		iHasWasmPhase := ip.WasmPhase != extensions.PluginPhase_UNSPECIFIED_PHASE
+		jHasWasmPhase := jp.WasmPhase != extensions.PluginPhase_UNSPECIFIED_PHASE
+		if iHasWasmPhase && jHasWasmPhase {
+			if ip.WasmPhase != jp.WasmPhase {
+				return envoyFilterPhaseOrder(ip.WasmPhase) < envoyFilterPhaseOrder(jp.WasmPhase)
+			}
+			if ip.WasmPriority != jp.WasmPriority {
+				return ip.WasmPriority > jp.WasmPriority
+			}
+			return false
+		}
+		if iHasWasmPhase && !jHasWasmPhase {
+			return true
+		}
+		if !iHasWasmPhase && jHasWasmPhase {
+			return false
+		}
+		return false
+	})
+	for _, lp := range httpPatches {
 		applied := false
 		if !commonConditionMatch(patchContext, lp) ||
 			!listenerMatch(lis, lp) ||
@@ -608,6 +633,21 @@ func mergeListenerFilter(lp *model.EnvoyFilterConfigPatchWrapper, lisFilter *lis
 	}
 
 	return true
+}
+
+func envoyFilterPhaseOrder(phase extensions.PluginPhase) int {
+	switch phase {
+	case extensions.PluginPhase_AUTHN:
+		return 0
+	case extensions.PluginPhase_AUTHZ:
+		return 1
+	case extensions.PluginPhase_STATS:
+		return 2
+	case extensions.PluginPhase_UNSPECIFIED_PHASE:
+		return 3
+	default:
+		return 3
+	}
 }
 
 func listenerMatch(listener *listener.Listener, lp *model.EnvoyFilterConfigPatchWrapper) bool {

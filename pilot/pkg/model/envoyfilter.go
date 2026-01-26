@@ -22,6 +22,7 @@ import (
 	"google.golang.org/protobuf/proto"
 	"k8s.io/apimachinery/pkg/types"
 
+	extensions "istio.io/api/extensions/v1alpha1"
 	networking "istio.io/api/networking/v1alpha3"
 	"istio.io/api/type/v1beta1"
 	"istio.io/istio/pkg/config"
@@ -82,6 +83,8 @@ type EnvoyFilterConfigPatchWrapper struct {
 	Match     *networking.EnvoyFilter_EnvoyConfigObjectMatch
 	ApplyTo   networking.EnvoyFilter_ApplyTo
 	Operation networking.EnvoyFilter_Patch_Operation
+	WasmPhase extensions.PluginPhase
+	WasmPriority int32
 	// Pre-compile the regex from proxy version match in the match
 	ProxyVersionRegex *regexp.Regexp
 	// ProxyPrefixMatch provides a prefix match for the proxy version. The current API only allows
@@ -160,6 +163,8 @@ func convertToEnvoyFilterWrapper(local *config.Config) *EnvoyFilterWrapper {
 			ApplyTo:   cp.ApplyTo,
 			Match:     cp.Match,
 			Operation: cp.Patch.Operation,
+			WasmPhase: localEnvoyFilter.WasmPhase,
+			WasmPriority: localEnvoyFilter.WasmPriority,
 		}
 		var err error
 		// Use non-strict building to avoid issues where EnvoyFilter is valid but meant
