@@ -45,7 +45,7 @@ RUN apt-get update --allow-unauthenticated && \
   && apt-get clean
 
 # Latest releases available at https://github.com/aptible/supercronic/releases
-ENV SUPERCRONIC_URL=https://higress.io/release-binary/supercronic-linux-${TARGETARCH:-amd64} \
+ENV SUPERCRONIC_URL=https://github.com/higress-group/proxy/releases/download/v2.2.0/supercronic-linux-${TARGETARCH:-amd64} \
     SUPERCRONIC=supercronic-linux-${TARGETARCH:-amd64}
 
 RUN curl -fsSLO "$SUPERCRONIC_URL" \
