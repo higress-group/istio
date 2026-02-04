@@ -21,6 +21,8 @@ import (
 	route "github.com/envoyproxy/go-control-plane/envoy/config/route/v3"
 	extproc "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/ext_proc/v3"
 	"google.golang.org/protobuf/types/known/durationpb"
+	"istio.io/istio/pkg/config/constants"
+
 	//sfsvalue "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/common/set_filter_state/v3"
 	cors "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/cors/v3"
 	fault "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/fault/v3"
@@ -196,17 +198,14 @@ var (
 					ResponseHeaderMode: extproc.ProcessingMode_SKIP,
 				},
 				MessageTimeout: &durationpb.Duration{Seconds: 1000},
-				// Start - Updated by Higress
-				// todo: wait for updating envoy and go-control-plane
-				//MetadataOptions: &extproc.MetadataOptions{
-				//	ReceivingNamespaces: &extproc.MetadataOptions_MetadataNamespaces{
-				//		Untyped: []string{constants.EnvoySubsetNamespace},
-				//	},
-				//	ForwardingNamespaces: &extproc.MetadataOptions_MetadataNamespaces{
-				//		Untyped: []string{constants.EnvoySubsetNamespace},
-				//	},
-				//},
-				// End - Updated by Higress
+				MetadataOptions: &extproc.MetadataOptions{
+					ReceivingNamespaces: &extproc.MetadataOptions_MetadataNamespaces{
+						Untyped: []string{constants.EnvoySubsetNamespace},
+					},
+					ForwardingNamespaces: &extproc.MetadataOptions_MetadataNamespaces{
+						Untyped: []string{constants.EnvoySubsetNamespace},
+					},
+				},
 			}),
 		},
 	}

@@ -573,8 +573,7 @@ func TranslateRoute(
 		out.TypedPerFilterConfig[wellknown.HTTPExternalProcessing] = protoconv.MessageToAny(&extproc.ExtProcPerRoute{
 			Override: &extproc.ExtProcPerRoute_Overrides{
 				Overrides: &extproc.ExtProcOverrides{
-					// todo: wait for updating envoy and go-control-plane
-					//FailureModeAllow: &wrapperspb.BoolValue{Value: infPoolRouteRuleCfg.FailureModeAllow},
+					FailureModeAllow: &wrapperspb.BoolValue{Value: infPoolRouteRuleCfg.FailureModeAllow},
 					GrpcService: &core.GrpcService{
 						TargetSpecifier: &core.GrpcService_EnvoyGrpc_{
 							EnvoyGrpc: &core.GrpcService_EnvoyGrpc{
@@ -585,12 +584,10 @@ func TranslateRoute(
 					ProcessingMode: &extproc.ProcessingMode{
 						RequestHeaderMode: extproc.ProcessingMode_SEND,
 						// open AI standard includes the model and other information the ext_proc server needs in the request body
-						// todo: wait for updating envoy and go-control-plane
-						//RequestBodyMode:    extproc.ProcessingMode_FULL_DUPLEX_STREAMED,
+						RequestBodyMode:    extproc.ProcessingMode_FULL_DUPLEX_STREAMED,
 						ResponseHeaderMode: extproc.ProcessingMode_SEND,
 						// GIE collects statistics present in the open AI standard response message
-						// todo: wait for updating envoy and go-control-plane
-						//ResponseBodyMode: extproc.ProcessingMode_FULL_DUPLEX_STREAMED,
+						ResponseBodyMode: extproc.ProcessingMode_FULL_DUPLEX_STREAMED,
 					},
 				},
 			},
