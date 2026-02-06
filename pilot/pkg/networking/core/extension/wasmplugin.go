@@ -108,6 +108,11 @@ func toEnvoyHTTPFilter(wasmPlugin *model.WasmPluginWrapper) *hcm.HttpFilter {
 	}
 }
 
+// ToEnvoyHTTPFilter exposes the HTTP filter conversion for callers needing custom ordering.
+func ToEnvoyHTTPFilter(wasmPlugin *model.WasmPluginWrapper) *hcm.HttpFilter {
+	return toEnvoyHTTPFilter(wasmPlugin)
+}
+
 func toEnvoyNetworkFilter(wasmPlugin *model.WasmPluginWrapper) *listener.Filter {
 	return &listener.Filter{
 		Name: wasmPlugin.ResourceName,

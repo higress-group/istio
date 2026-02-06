@@ -106,7 +106,7 @@ func (ml *MutableGatewayListener) build(builder *ListenerBuilder, opts gatewayLi
 				opt.httpOpts.statPrefix = util.DelimitedStatsPrefix(statPrefix)
 			}
 			opt.httpOpts.port = opts.port
-			httpConnectionManagers[i] = builder.buildHTTPConnectionManager(opt.httpOpts)
+			httpConnectionManagers[i] = builder.buildHTTPConnectionManager(opt.httpOpts, ml.Listener, filterChain, patchContextForListenerClass(opt.httpOpts.class))
 			filter := &listener.Filter{
 				Name:       wellknown.HTTPConnectionManager,
 				ConfigType: &listener.Filter_TypedConfig{TypedConfig: protoconv.MessageToAny(httpConnectionManagers[i])},

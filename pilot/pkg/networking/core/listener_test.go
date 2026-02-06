@@ -34,6 +34,7 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/testing/protocmp"
 	"google.golang.org/protobuf/types/known/durationpb"
+	"google.golang.org/protobuf/types/known/structpb"
 	wrappers "google.golang.org/protobuf/types/known/wrapperspb"
 
 	extensions "istio.io/api/extensions/v1alpha1"
@@ -46,9 +47,12 @@ import (
 	istionetworking "istio.io/istio/pilot/pkg/networking"
 	"istio.io/istio/pilot/pkg/networking/core/listenertest"
 	"istio.io/istio/pilot/pkg/networking/util"
+	"istio.io/istio/pilot/pkg/serviceregistry"
+	"istio.io/istio/pilot/pkg/serviceregistry/memory"
 	"istio.io/istio/pilot/pkg/serviceregistry/provider"
 	xdsfilters "istio.io/istio/pilot/pkg/xds/filters"
 	"istio.io/istio/pilot/test/xdstest"
+	"istio.io/istio/pkg/cluster"
 	"istio.io/istio/pkg/config"
 	"istio.io/istio/pkg/config/constants"
 	"istio.io/istio/pkg/config/host"
@@ -61,6 +65,7 @@ import (
 	"istio.io/istio/pkg/test/util/assert"
 	"istio.io/istio/pkg/util/protomarshal"
 	"istio.io/istio/pkg/wellknown"
+	"istio.io/istio/pkg/workloadapi"
 )
 
 const (
@@ -2807,6 +2812,469 @@ func verifyFilterChainMatch(t *testing.T, listener *listener.Listener) {
 	httpNetworkFilters := []string{xdsfilters.MxFilterName, wellknown.HTTPConnectionManager}
 	tcpNetworkFilters := []string{xdsfilters.MxFilterName, wellknown.TCPProxy}
 	verifyInboundFilterChains(t, listener, httpFilters, httpNetworkFilters, tcpNetworkFilters)
+}
+
+func TestWasmEnvoyFilterMixedOrdering(t *testing.T) {
+	buildHTTPFilterPatch := func(port uint32, op networking.EnvoyFilter_Patch_Operation, name string, subFilter string) *networking.EnvoyFilter_EnvoyConfigObjectPatch {
+		val, err := structpb.NewStruct(map[string]any{"name": name})
+		if err != nil {
+			t.Fatalf("failed to build patch struct: %v", err)
+		}
+		filterMatch := &networking.EnvoyFilter_ListenerMatch_FilterMatch{
+			Name: wellknown.HTTPConnectionManager,
+		}
+		if subFilter != "" {
+			filterMatch.SubFilter = &networking.EnvoyFilter_ListenerMatch_SubFilterMatch{Name: subFilter}
+		}
+		return &networking.EnvoyFilter_EnvoyConfigObjectPatch{
+			ApplyTo: networking.EnvoyFilter_HTTP_FILTER,
+			Match: &networking.EnvoyFilter_EnvoyConfigObjectMatch{
+				Context: networking.EnvoyFilter_SIDECAR_OUTBOUND,
+				ObjectTypes: &networking.EnvoyFilter_EnvoyConfigObjectMatch_Listener{
+					Listener: &networking.EnvoyFilter_ListenerMatch{
+						PortNumber: port,
+						FilterChain: &networking.EnvoyFilter_ListenerMatch_FilterChainMatch{
+							Filter: filterMatch,
+						},
+					},
+				},
+			},
+			Patch: &networking.EnvoyFilter_Patch{
+				Operation: op,
+				Value:     val,
+			},
+		}
+	}
+
+	buildEnvoyFilter := func(name string, ts time.Time, phase extensions.PluginPhase, prio int32, patch *networking.EnvoyFilter_EnvoyConfigObjectPatch) config.Config {
+		return config.Config{
+			Meta: config.Meta{
+				Name:              name,
+				Namespace:         "istio-system",
+				GroupVersionKind:  gvk.EnvoyFilter,
+				CreationTimestamp: ts,
+			},
+			Spec: &networking.EnvoyFilter{
+				WasmPhase:    phase,
+				WasmPriority: prio,
+				ConfigPatches: []*networking.EnvoyFilter_EnvoyConfigObjectPatch{
+					patch,
+				},
+			},
+		}
+	}
+
+	wasmAuthn := config.Config{
+		Meta: config.Meta{Name: "wasm-authn", Namespace: "istio-system", GroupVersionKind: gvk.WasmPlugin},
+		Spec: &extensions.WasmPlugin{
+			Phase:    extensions.PluginPhase_AUTHN,
+			Type:     extensions.PluginType_HTTP,
+			Url:      "oci://example.com/wasm-authn",
+			Priority: &wrappers.Int32Value{Value: 100},
+		},
+	}
+	wasmAuthz := config.Config{
+		Meta: config.Meta{Name: "wasm-authz", Namespace: "istio-system", GroupVersionKind: gvk.WasmPlugin},
+		Spec: &extensions.WasmPlugin{
+			Phase:    extensions.PluginPhase_AUTHZ,
+			Type:     extensions.PluginType_HTTP,
+			Url:      "oci://example.com/wasm-authz",
+			Priority: &wrappers.Int32Value{Value: 100},
+		},
+	}
+
+	customAuthnA := buildEnvoyFilter(
+		"custom-authn-a",
+		time.Unix(1, 0),
+		extensions.PluginPhase_AUTHN,
+		50,
+		buildHTTPFilterPatch(8080, networking.EnvoyFilter_Patch_ADD, "custom-authn-a", ""),
+	)
+	customAuthnB := buildEnvoyFilter(
+		"custom-authn-b",
+		time.Unix(2, 0),
+		extensions.PluginPhase_AUTHN,
+		50,
+		buildHTTPFilterPatch(8080, networking.EnvoyFilter_Patch_ADD, "custom-authn-b", ""),
+	)
+	customAuthz := buildEnvoyFilter(
+		"custom-authz",
+		time.Unix(3, 0),
+		extensions.PluginPhase_AUTHZ,
+		50,
+		buildHTTPFilterPatch(8080, networking.EnvoyFilter_Patch_ADD, "custom-authz", ""),
+	)
+
+	insertBeforeRouter := config.Config{
+		Meta: config.Meta{Name: "insert-before-router", Namespace: "istio-system", GroupVersionKind: gvk.EnvoyFilter},
+		Spec: &networking.EnvoyFilter{
+			ConfigPatches: []*networking.EnvoyFilter_EnvoyConfigObjectPatch{
+				buildHTTPFilterPatch(8080, networking.EnvoyFilter_Patch_INSERT_BEFORE, "insert-before-router", wellknown.Router),
+			},
+		},
+	}
+
+	proxy := getProxy()
+	listeners := buildListeners(t, TestOptions{
+		Services: []*model.Service{buildService("test.com", wildcardIPv4, protocol.HTTP, tnow)},
+		Configs:  []config.Config{wasmAuthn, wasmAuthz, customAuthnA, customAuthnB, customAuthz, insertBeforeRouter},
+	}, proxy)
+	l := xdstest.ExtractListener("0.0.0.0_8080", listeners)
+
+	var h *hcm.HttpConnectionManager
+	for _, fc := range l.FilterChains {
+		if extracted := xdstest.ExtractHTTPConnectionManager(t, fc); extracted != nil {
+			h = extracted
+			break
+		}
+	}
+	if h == nil {
+		t.Fatalf("no HTTP connection manager found")
+	}
+
+	filterNames := make([]string, 0, len(h.HttpFilters))
+	for _, hf := range h.HttpFilters {
+		filterNames = append(filterNames, hf.Name)
+	}
+
+	wasmAuthnName := model.WasmPluginResourceNamePrefix + "istio-system.wasm-authn"
+	wasmAuthzName := model.WasmPluginResourceNamePrefix + "istio-system.wasm-authz"
+
+	assertInOrder(t, filterNames, wasmAuthnName, "custom-authn-a", "custom-authn-b", wasmAuthzName, "custom-authz")
+	assertInOrder(t, filterNames, "insert-before-router", wellknown.Router)
+}
+
+func TestWasmEnvoyFilterMixedOrderingWithListenerNameMatch(t *testing.T) {
+	buildHTTPFilterPatch := func(port uint32, name string) *networking.EnvoyFilter_EnvoyConfigObjectPatch {
+		val, err := structpb.NewStruct(map[string]any{"name": name})
+		if err != nil {
+			t.Fatalf("failed to build patch struct: %v", err)
+		}
+		return &networking.EnvoyFilter_EnvoyConfigObjectPatch{
+			ApplyTo: networking.EnvoyFilter_HTTP_FILTER,
+			Match: &networking.EnvoyFilter_EnvoyConfigObjectMatch{
+				Context: networking.EnvoyFilter_SIDECAR_OUTBOUND,
+				ObjectTypes: &networking.EnvoyFilter_EnvoyConfigObjectMatch_Listener{
+					Listener: &networking.EnvoyFilter_ListenerMatch{
+						Name:       "0.0.0.0_8080",
+						PortNumber: port,
+						FilterChain: &networking.EnvoyFilter_ListenerMatch_FilterChainMatch{
+							Filter: &networking.EnvoyFilter_ListenerMatch_FilterMatch{
+								Name: wellknown.HTTPConnectionManager,
+							},
+						},
+					},
+				},
+			},
+			Patch: &networking.EnvoyFilter_Patch{
+				Operation: networking.EnvoyFilter_Patch_ADD,
+				Value:     val,
+			},
+		}
+	}
+
+	wasmAuthn := config.Config{
+		Meta: config.Meta{Name: "wasm-authn", Namespace: "istio-system", GroupVersionKind: gvk.WasmPlugin},
+		Spec: &extensions.WasmPlugin{
+			Phase:    extensions.PluginPhase_AUTHN,
+			Type:     extensions.PluginType_HTTP,
+			Url:      "oci://example.com/wasm-authn",
+			Priority: &wrappers.Int32Value{Value: 100},
+		},
+	}
+	envoyFilter := config.Config{
+		Meta: config.Meta{
+			Name:              "custom-authn",
+			Namespace:         "istio-system",
+			GroupVersionKind:  gvk.EnvoyFilter,
+			CreationTimestamp: time.Unix(1, 0),
+		},
+		Spec: &networking.EnvoyFilter{
+			WasmPhase:    extensions.PluginPhase_AUTHN,
+			WasmPriority: 50,
+			ConfigPatches: []*networking.EnvoyFilter_EnvoyConfigObjectPatch{
+				buildHTTPFilterPatch(8080, "custom-authn"),
+			},
+		},
+	}
+
+	proxy := getProxy()
+	listeners := buildListeners(t, TestOptions{
+		Services: []*model.Service{buildService("test.com", wildcardIPv4, protocol.HTTP, tnow)},
+		Configs:  []config.Config{wasmAuthn, envoyFilter},
+	}, proxy)
+	l := xdstest.ExtractListener("0.0.0.0_8080", listeners)
+
+	var h *hcm.HttpConnectionManager
+	for _, fc := range l.FilterChains {
+		if extracted := xdstest.ExtractHTTPConnectionManager(t, fc); extracted != nil {
+			h = extracted
+			break
+		}
+	}
+	if h == nil {
+		t.Fatalf("no HTTP connection manager found")
+	}
+	filterNames := make([]string, 0, len(h.HttpFilters))
+	for _, hf := range h.HttpFilters {
+		filterNames = append(filterNames, hf.Name)
+	}
+	wasmAuthnName := model.WasmPluginResourceNamePrefix + "istio-system.wasm-authn"
+	assertInOrder(t, filterNames, wasmAuthnName, "custom-authn")
+}
+
+func TestWaypointEnvoyFilterWasmPhaseAddApplied(t *testing.T) {
+	buildHTTPFilterPatch := func(name string) *networking.EnvoyFilter_EnvoyConfigObjectPatch {
+		val, err := structpb.NewStruct(map[string]any{"name": name})
+		if err != nil {
+			t.Fatalf("failed to build patch struct: %v", err)
+		}
+		return &networking.EnvoyFilter_EnvoyConfigObjectPatch{
+			ApplyTo: networking.EnvoyFilter_HTTP_FILTER,
+			Match: &networking.EnvoyFilter_EnvoyConfigObjectMatch{
+				Context: networking.EnvoyFilter_SIDECAR_INBOUND,
+				ObjectTypes: &networking.EnvoyFilter_EnvoyConfigObjectMatch_Listener{
+					Listener: &networking.EnvoyFilter_ListenerMatch{
+						Name: MainInternalName,
+						FilterChain: &networking.EnvoyFilter_ListenerMatch_FilterChainMatch{
+							Filter: &networking.EnvoyFilter_ListenerMatch_FilterMatch{
+								Name: wellknown.HTTPConnectionManager,
+							},
+						},
+					},
+				},
+			},
+			Patch: &networking.EnvoyFilter_Patch{
+				Operation: networking.EnvoyFilter_Patch_ADD,
+				Value:     val,
+			},
+		}
+	}
+
+	envoyFilter := config.Config{
+		Meta: config.Meta{
+			Name:              "waypoint-authn",
+			Namespace:         "istio-system",
+			GroupVersionKind:  gvk.EnvoyFilter,
+			CreationTimestamp: time.Unix(1, 0),
+		},
+		Spec: &networking.EnvoyFilter{
+			WasmPhase:    extensions.PluginPhase_AUTHN,
+			WasmPriority: 10,
+			ConfigPatches: []*networking.EnvoyFilter_EnvoyConfigObjectPatch{
+				buildHTTPFilterPatch("waypoint-authn"),
+			},
+		},
+	}
+
+	cg := NewConfigGenTest(t, TestOptions{
+		Services: []*model.Service{buildService("test.com", wildcardIPv4, protocol.HTTP, tnow)},
+		Configs:  []config.Config{envoyFilter},
+	})
+	proxy := &model.Proxy{Type: model.Waypoint, ConfigNamespace: "istio-system"}
+	proxy = cg.SetupProxy(proxy)
+	listeners := cg.Listeners(proxy)
+
+	var h *hcm.HttpConnectionManager
+	for _, l := range listeners {
+		if l.Name != MainInternalName {
+			continue
+		}
+		for _, fc := range l.FilterChains {
+			if extracted := xdstest.ExtractHTTPConnectionManager(t, fc); extracted != nil {
+				h = extracted
+				break
+			}
+		}
+	}
+	if h == nil {
+		t.Fatalf("no HTTP connection manager found for waypoint")
+	}
+	found := false
+	for _, hf := range h.HttpFilters {
+		if hf.Name == "waypoint-authn" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected waypoint-authn filter in HCM")
+	}
+}
+
+type waypointAmbientRegistry struct {
+	*memory.ServiceDiscovery
+	services  []model.ServiceInfo
+	workloads []model.WorkloadInfo
+	match     func(model.WaypointKey) bool
+}
+
+func (w *waypointAmbientRegistry) ServicesForWaypoint(key model.WaypointKey) []model.ServiceInfo {
+	if w.match != nil && !w.match(key) {
+		return nil
+	}
+	return w.services
+}
+
+func (w *waypointAmbientRegistry) WorkloadsForWaypoint(key model.WaypointKey) []model.WorkloadInfo {
+	if w.match != nil && !w.match(key) {
+		return nil
+	}
+	return w.workloads
+}
+
+func TestWaypointServiceBindingUsesAmbientIndex(t *testing.T) {
+	test.SetForTest(t, &features.EnableAmbient, true)
+	test.SetForTest(t, &features.EnableAmbientWaypoints, true)
+
+	svcA := buildService("svc-a.default.svc.cluster.local", wildcardIPv4, protocol.HTTP, tnow)
+	svcB := buildService("svc-b.default.svc.cluster.local", wildcardIPv4, protocol.HTTP, tnow)
+
+	makeTarget := func(svc *model.Service) model.ServiceTarget {
+		return model.ServiceTarget{
+			Service: svc,
+			Port: model.ServiceInstancePort{
+				ServicePort: svc.Ports[0],
+				TargetPort:  8080,
+			},
+		}
+	}
+
+	svcAInfo := model.ServiceInfo{
+		Service: &workloadapi.Service{
+			Name:      "svc-a",
+			Namespace: "default",
+			Hostname:  "svc-a.default.svc.cluster.local",
+		},
+	}
+
+	wpDiscovery := &waypointAmbientRegistry{
+		ServiceDiscovery: memory.NewServiceDiscovery(),
+		services:         []model.ServiceInfo{svcAInfo},
+		match: func(key model.WaypointKey) bool {
+			return slices.Contains(key.Hostnames, svcA.Hostname.String()) &&
+				slices.Contains(key.Hostnames, svcB.Hostname.String())
+		},
+	}
+	wpRegistry := serviceregistry.Simple{
+		ProviderID:          provider.Mock,
+		ClusterID:           cluster.ID(provider.Mock),
+		DiscoveryController: wpDiscovery,
+	}
+
+	envoyFilter := config.Config{
+		Meta: config.Meta{
+			Name:              "waypoint-authn-bound",
+			Namespace:         "istio-system",
+			GroupVersionKind:  gvk.EnvoyFilter,
+			CreationTimestamp: time.Unix(1, 0),
+		},
+		Spec: &networking.EnvoyFilter{
+			WasmPhase:    extensions.PluginPhase_AUTHN,
+			WasmPriority: 10,
+			ConfigPatches: []*networking.EnvoyFilter_EnvoyConfigObjectPatch{
+				{
+					ApplyTo: networking.EnvoyFilter_HTTP_FILTER,
+					Match: &networking.EnvoyFilter_EnvoyConfigObjectMatch{
+						Context: networking.EnvoyFilter_SIDECAR_INBOUND,
+						ObjectTypes: &networking.EnvoyFilter_EnvoyConfigObjectMatch_Listener{
+							Listener: &networking.EnvoyFilter_ListenerMatch{
+								Name: MainInternalName,
+								FilterChain: &networking.EnvoyFilter_ListenerMatch_FilterChainMatch{
+									Filter: &networking.EnvoyFilter_ListenerMatch_FilterMatch{
+										Name: wellknown.HTTPConnectionManager,
+									},
+								},
+							},
+						},
+					},
+					Patch: &networking.EnvoyFilter_Patch{
+						Operation: networking.EnvoyFilter_Patch_ADD,
+						Value:     buildPatchStruct(`{"name":"waypoint-authn-bound"}`),
+					},
+				},
+			},
+		},
+	}
+
+	cg := NewConfigGenTest(t, TestOptions{
+		Services:          []*model.Service{svcA, svcB},
+		Configs:           []config.Config{envoyFilter},
+		ServiceRegistries: []serviceregistry.Instance{wpRegistry},
+	})
+	cg.MemRegistry.WantGetProxyServiceTargets = []model.ServiceTarget{
+		makeTarget(svcA),
+		makeTarget(svcB),
+	}
+
+	proxy := &model.Proxy{Type: model.Waypoint, ConfigNamespace: "default"}
+	proxy = cg.SetupProxy(proxy)
+	listeners := cg.Listeners(proxy)
+
+	var mainListener *listener.Listener
+	for _, l := range listeners {
+		if l.Name == MainInternalName {
+			mainListener = l
+			break
+		}
+	}
+	if mainListener == nil {
+		t.Fatalf("expected waypoint listener %q", MainInternalName)
+	}
+
+	svcAChain := model.BuildSubsetKey(model.TrafficDirectionInboundVIP, "http", svcA.Hostname, svcA.Ports[0].Port)
+	svcBChain := model.BuildSubsetKey(model.TrafficDirectionInboundVIP, "http", svcB.Hostname, svcB.Ports[0].Port)
+
+	var svcAFilterChain *listener.FilterChain
+	for _, fc := range mainListener.FilterChains {
+		if fc.Name == svcAChain {
+			svcAFilterChain = fc
+		}
+		if fc.Name == svcBChain {
+			t.Fatalf("unexpected filter chain for unbound service %q", svcB.Hostname)
+		}
+	}
+	if svcAFilterChain == nil {
+		t.Fatalf("missing filter chain for bound service %q", svcA.Hostname)
+	}
+
+	h := xdstest.ExtractHTTPConnectionManager(t, svcAFilterChain)
+	if h == nil {
+		t.Fatalf("no HTTP connection manager found for bound service chain")
+	}
+	found := false
+	for _, hf := range h.HttpFilters {
+		if hf.Name == "waypoint-authn-bound" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected waypoint-authn-bound filter in HCM for bound service")
+	}
+}
+
+func assertInOrder(t *testing.T, names []string, ordered ...string) {
+	t.Helper()
+	index := func(name string) int {
+		for i, n := range names {
+			if n == name {
+				return i
+			}
+		}
+		return -1
+	}
+	last := -1
+	for _, name := range ordered {
+		idx := index(name)
+		if idx == -1 {
+			t.Fatalf("missing filter %q in %v", name, names)
+		}
+		if idx <= last {
+			t.Fatalf("expected order %v, got %v", ordered, names)
+		}
+		last = idx
+	}
 }
 
 func verifyInboundFilterChains(t *testing.T, listener *listener.Listener, httpFilters []string, httpNetworkFilters []string, tcpNetworkFilters []string) {

@@ -17,7 +17,6 @@ package envoyfilter
 import (
 	"fmt"
 	"istio.io/istio/pkg/config/xds"
-	"sort"
 	"strings"
 
 	listener "github.com/envoyproxy/go-control-plane/envoy/config/listener/v3"
@@ -451,30 +450,14 @@ func patchHTTPFilters(patchContext networking.EnvoyFilter_PatchContext,
 		}
 	}
 	httpPatches := patches[networking.EnvoyFilter_HTTP_FILTER]
-	sort.SliceStable(httpPatches, func(i, j int) bool {
-		ip := httpPatches[i]
-		jp := httpPatches[j]
-		iHasWasmPhase := ip.WasmPhase != extensions.PluginPhase_UNSPECIFIED_PHASE
-		jHasWasmPhase := jp.WasmPhase != extensions.PluginPhase_UNSPECIFIED_PHASE
-		if iHasWasmPhase && jHasWasmPhase {
-			if ip.WasmPhase != jp.WasmPhase {
-				return envoyFilterPhaseOrder(ip.WasmPhase) < envoyFilterPhaseOrder(jp.WasmPhase)
-			}
-			if ip.WasmPriority != jp.WasmPriority {
-				return ip.WasmPriority > jp.WasmPriority
-			}
-			return false
-		}
-		if iHasWasmPhase && !jHasWasmPhase {
-			return true
-		}
-		if !iHasWasmPhase && jHasWasmPhase {
-			return false
-		}
-		return false
-	})
 	for _, lp := range httpPatches {
 		applied := false
+		if lp.Operation == networking.EnvoyFilter_Patch_ADD && lp.WasmPhase != extensions.PluginPhase_UNSPECIFIED_PHASE {
+			if httpFilterAlreadyPresent(httpconn.HttpFilters, lp) {
+				// Wasm phase-aware ADDs may be handled during listener construction for mixed ordering.
+				continue
+			}
+		}
 		if !commonConditionMatch(patchContext, lp) ||
 			!listenerMatch(lis, lp) ||
 			!filterChainMatch(lis, fc, lp) ||
@@ -547,6 +530,22 @@ func patchHTTPFilters(patchContext networking.EnvoyFilter_PatchContext,
 		// convert to any type
 		filter.ConfigType = &listener.Filter_TypedConfig{TypedConfig: protoconv.MessageToAny(httpconn)}
 	}
+}
+
+func httpFilterAlreadyPresent(filters []*hcm.HttpFilter, lp *model.EnvoyFilterConfigPatchWrapper) bool {
+	if lp == nil || lp.Value == nil {
+		return false
+	}
+	patchFilter, ok := lp.Value.(*hcm.HttpFilter)
+	if !ok || patchFilter == nil || patchFilter.Name == "" {
+		return false
+	}
+	for _, filter := range filters {
+		if filter != nil && filter.Name == patchFilter.Name {
+			return true
+		}
+	}
+	return false
 }
 
 // mergeHTTPFilter patches passed in filter if it is MERGE operation.
@@ -633,21 +632,6 @@ func mergeListenerFilter(lp *model.EnvoyFilterConfigPatchWrapper, lisFilter *lis
 	}
 
 	return true
-}
-
-func envoyFilterPhaseOrder(phase extensions.PluginPhase) int {
-	switch phase {
-	case extensions.PluginPhase_AUTHN:
-		return 0
-	case extensions.PluginPhase_AUTHZ:
-		return 1
-	case extensions.PluginPhase_STATS:
-		return 2
-	case extensions.PluginPhase_UNSPECIFIED_PHASE:
-		return 3
-	default:
-		return 3
-	}
 }
 
 func listenerMatch(listener *listener.Listener, lp *model.EnvoyFilterConfigPatchWrapper) bool {
@@ -805,6 +789,23 @@ func httpFilterMatch(filter *hcm.HttpFilter, lp *model.EnvoyFilterConfigPatchWra
 	match := lp.Match.GetListener().FilterChain.Filter.SubFilter
 
 	return match.Name == filter.Name
+}
+
+// HTTPFilterPatchMatch determines whether a patch matches a given listener/filter chain/filter context.
+func HTTPFilterPatchMatch(
+	patchContext networking.EnvoyFilter_PatchContext,
+	lp *model.EnvoyFilterConfigPatchWrapper,
+	lis *listener.Listener,
+	fc *listener.FilterChain,
+	filter *listener.Filter,
+) bool {
+	if lp == nil || lis == nil || fc == nil || filter == nil {
+		return false
+	}
+	return commonConditionMatch(patchContext, lp) &&
+		listenerMatch(lis, lp) &&
+		filterChainMatch(lis, fc, lp) &&
+		networkFilterMatch(filter, lp)
 }
 
 func patchContextMatch(patchContext networking.EnvoyFilter_PatchContext,

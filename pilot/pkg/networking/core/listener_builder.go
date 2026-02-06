@@ -18,6 +18,8 @@ import (
 	"istio.io/istio/pilot/pkg/networking/plugin/mseingress"
 	alifeatures "istio.io/istio/pkg/ali/features"
 	"istio.io/istio/pkg/config/constants"
+	"math"
+	"sort"
 	"time"
 
 	accesslog "github.com/envoyproxy/go-control-plane/envoy/config/accesslog/v3"
@@ -25,6 +27,7 @@ import (
 	listener "github.com/envoyproxy/go-control-plane/envoy/config/listener/v3"
 	hcm "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/network/http_connection_manager/v3"
 	tcp "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/network/tcp_proxy/v3"
+	gproto "google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/durationpb"
 	wrappers "google.golang.org/protobuf/types/known/wrapperspb"
 	extensions "istio.io/api/extensions/v1alpha1"
@@ -44,7 +47,7 @@ import (
 	"istio.io/istio/pilot/pkg/xds/requestidextension"
 	"istio.io/istio/pkg/config/protocol"
 	"istio.io/istio/pkg/log"
-	"istio.io/istio/pkg/proto"
+	istio_proto "istio.io/istio/pkg/proto"
 	"istio.io/istio/pkg/wellknown"
 )
 
@@ -135,7 +138,7 @@ func (lb *ListenerBuilder) buildVirtualOutboundListener() *ListenerBuilder {
 
 	var isTransparentProxy *wrappers.BoolValue
 	if lb.node.GetInterceptionMode() == model.InterceptionTproxy {
-		isTransparentProxy = proto.BoolTrue
+		isTransparentProxy = istio_proto.BoolTrue
 	}
 
 	filterChains := buildOutboundCatchAllNetworkFilterChains(lb.node, lb.push)
@@ -146,7 +149,7 @@ func (lb *ListenerBuilder) buildVirtualOutboundListener() *ListenerBuilder {
 		Name:                                 model.VirtualOutboundListenerName,
 		Address:                              util.BuildAddress(actualWildcards[0], uint32(lb.push.Mesh.ProxyListenPort)),
 		Transparent:                          isTransparentProxy,
-		UseOriginalDst:                       proto.BoolTrue,
+		UseOriginalDst:                       istio_proto.BoolTrue,
 		FilterChains:                         filterChains,
 		TrafficDirection:                     core.TrafficDirection_OUTBOUND,
 		MaxConnectionsToAcceptPerSocketEvent: maxConnectionsToAcceptPerSocketEvent(),
@@ -315,7 +318,12 @@ func blackholeFilterChain(push *model.PushContext, node *model.Proxy) *listener.
 	}
 }
 
-func (lb *ListenerBuilder) buildHTTPConnectionManager(httpOpts *httpListenerOpts) *hcm.HttpConnectionManager {
+func (lb *ListenerBuilder) buildHTTPConnectionManager(
+	httpOpts *httpListenerOpts,
+	lis *listener.Listener,
+	fc *listener.FilterChain,
+	patchContext networking.EnvoyFilter_PatchContext,
+) *hcm.HttpConnectionManager {
 	if httpOpts.connectionManager == nil {
 		httpOpts.connectionManager = &hcm.HttpConnectionManager{}
 	}
@@ -344,22 +352,22 @@ func (lb *ListenerBuilder) buildHTTPConnectionManager(httpOpts *httpListenerOpts
 	connectionManager.PathWithEscapedSlashesAction = hcm.HttpConnectionManager_KEEP_UNCHANGED
 	switch lb.push.Mesh.GetPathNormalization().GetNormalization() {
 	case meshconfig.MeshConfig_ProxyPathNormalization_NONE:
-		connectionManager.NormalizePath = proto.BoolFalse
+		connectionManager.NormalizePath = istio_proto.BoolFalse
 	case meshconfig.MeshConfig_ProxyPathNormalization_BASE, meshconfig.MeshConfig_ProxyPathNormalization_DEFAULT:
-		connectionManager.NormalizePath = proto.BoolTrue
+		connectionManager.NormalizePath = istio_proto.BoolTrue
 	case meshconfig.MeshConfig_ProxyPathNormalization_MERGE_SLASHES:
-		connectionManager.NormalizePath = proto.BoolTrue
+		connectionManager.NormalizePath = istio_proto.BoolTrue
 		connectionManager.MergeSlashes = true
 	case meshconfig.MeshConfig_ProxyPathNormalization_DECODE_AND_MERGE_SLASHES:
-		connectionManager.NormalizePath = proto.BoolTrue
+		connectionManager.NormalizePath = istio_proto.BoolTrue
 		connectionManager.MergeSlashes = true
 		connectionManager.PathWithEscapedSlashesAction = hcm.HttpConnectionManager_UNESCAPE_AND_FORWARD
 	}
 
 	if httpOpts.useRemoteAddress {
-		connectionManager.UseRemoteAddress = proto.BoolTrue
+		connectionManager.UseRemoteAddress = istio_proto.BoolTrue
 	} else {
-		connectionManager.UseRemoteAddress = proto.BoolFalse
+		connectionManager.UseRemoteAddress = istio_proto.BoolFalse
 	}
 
 	// Allow websocket upgrades
@@ -461,14 +469,16 @@ func (lb *ListenerBuilder) buildHTTPConnectionManager(httpOpts *httpListenerOpts
 			Class: httpOpts.class,
 		}, model.WasmPluginTypeHTTP)
 
+		wasmPhasePatches := lb.collectWasmPhaseHTTPAddPatches(patchContext, lis, fc)
+
 		// Metadata exchange filter needs to be added before any other HTTP filters are added. This is done to
 		// ensure that mx filter comes before HTTP RBAC filter. This is related to https://github.com/istio/istio/issues/41066
 		filters = appendMxFilter(httpOpts, filters)
 		// TODO: how to deal with ext-authz? It will be in the ordering twice
 		filters = append(filters, lb.authzCustomBuilder.BuildHTTP(httpOpts.class)...)
-		filters = extension.PopAppendHTTP(filters, wasm, extensions.PluginPhase_AUTHN)
+		filters = appendMixedHTTPFilters(filters, wasm, wasmPhasePatches, extensions.PluginPhase_AUTHN)
 		filters = append(filters, lb.authnBuilder.BuildHTTP(httpOpts.class)...)
-		filters = extension.PopAppendHTTP(filters, wasm, extensions.PluginPhase_AUTHZ)
+		filters = appendMixedHTTPFilters(filters, wasm, wasmPhasePatches, extensions.PluginPhase_AUTHZ)
 		filters = append(filters, lb.authzBuilder.BuildHTTP(httpOpts.class)...)
 
 		// Added by ingress
@@ -476,8 +486,8 @@ func (lb *ListenerBuilder) buildHTTPConnectionManager(httpOpts *httpListenerOpts
 		// End added by ingress
 
 		// TODO: these feel like the wrong place to insert, but this retains backwards compatibility with the original implementation
-		filters = extension.PopAppendHTTP(filters, wasm, extensions.PluginPhase_STATS)
-		filters = extension.PopAppendHTTP(filters, wasm, extensions.PluginPhase_UNSPECIFIED_PHASE)
+		filters = appendMixedHTTPFilters(filters, wasm, wasmPhasePatches, extensions.PluginPhase_STATS)
+		filters = appendMixedHTTPFilters(filters, wasm, wasmPhasePatches, extensions.PluginPhase_UNSPECIFIED_PHASE)
 		// Add ExtProc per listener only if the Gateway has any inferencePool attached to it
 		// Start - Updated by Higress
 		if features.EnableGatewayAPIInferenceExtension {
@@ -530,6 +540,94 @@ func (lb *ListenerBuilder) buildHTTPConnectionManager(httpOpts *httpListenerOpts
 	}
 	connectionManager.Proxy_100Continue = features.Enable100ContinueHeaders
 	return connectionManager
+}
+
+type mixedHTTPFilter struct {
+	priority int32
+	filter   *hcm.HttpFilter
+}
+
+func wasmPluginPriority(plugin *model.WasmPluginWrapper) int32 {
+	if plugin == nil || plugin.Priority == nil {
+		return math.MinInt32
+	}
+	return plugin.Priority.Value
+}
+
+func appendMixedHTTPFilters(
+	filters []*hcm.HttpFilter,
+	wasm map[extensions.PluginPhase][]*model.WasmPluginWrapper,
+	patches map[extensions.PluginPhase][]*model.EnvoyFilterConfigPatchWrapper,
+	phase extensions.PluginPhase,
+) []*hcm.HttpFilter {
+	phasePlugins := wasm[phase]
+	phasePatches := patches[phase]
+	if len(phasePlugins) == 0 && len(phasePatches) == 0 {
+		return filters
+	}
+
+	mixed := make([]mixedHTTPFilter, 0, len(phasePlugins)+len(phasePatches))
+	for _, plugin := range phasePlugins {
+		mixed = append(mixed, mixedHTTPFilter{
+			priority: wasmPluginPriority(plugin),
+			filter:   extension.ToEnvoyHTTPFilter(plugin),
+		})
+	}
+	for _, patch := range phasePatches {
+		mixed = append(mixed, mixedHTTPFilter{
+			priority: patch.WasmPriority,
+			filter:   gproto.Clone(patch.Value).(*hcm.HttpFilter),
+		})
+	}
+
+	sort.SliceStable(mixed, func(i, j int) bool {
+		if mixed[i].priority != mixed[j].priority {
+			return mixed[i].priority > mixed[j].priority
+		}
+		return false
+	})
+
+	for _, item := range mixed {
+		filters = append(filters, item.filter)
+	}
+	delete(wasm, phase)
+	return filters
+}
+
+func (lb *ListenerBuilder) collectWasmPhaseHTTPAddPatches(
+	patchContext networking.EnvoyFilter_PatchContext,
+	lis *listener.Listener,
+	fc *listener.FilterChain,
+) map[extensions.PluginPhase][]*model.EnvoyFilterConfigPatchWrapper {
+	if lis == nil || fc == nil {
+		return nil
+	}
+	efw := lb.envoyFilterWrapper
+	if efw == nil {
+		efw = lb.push.EnvoyFilters(lb.node)
+	}
+	if efw == nil {
+		return nil
+	}
+	httpPatches := efw.Patches[networking.EnvoyFilter_HTTP_FILTER]
+	if len(httpPatches) == 0 {
+		return nil
+	}
+	filter := &listener.Filter{Name: wellknown.HTTPConnectionManager}
+	out := map[extensions.PluginPhase][]*model.EnvoyFilterConfigPatchWrapper{}
+	for _, lp := range httpPatches {
+		if lp.Operation != networking.EnvoyFilter_Patch_ADD || lp.WasmPhase == extensions.PluginPhase_UNSPECIFIED_PHASE {
+			continue
+		}
+		if !envoyfilter.HTTPFilterPatchMatch(patchContext, lp, lis, fc, filter) {
+			continue
+		}
+		out[lp.WasmPhase] = append(out[lp.WasmPhase], lp)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 func appendMxFilter(httpOpts *httpListenerOpts, filters []*hcm.HttpFilter) []*hcm.HttpFilter {

@@ -167,7 +167,7 @@ func (lb *ListenerBuilder) buildInboundHBONEListeners() []*listener.Listener {
 		// Internal chain has no mTLS
 		mtls := authn.MTLSSettings{Port: cc.port.TargetPort, Mode: model.MTLSDisable}
 		opts := getFilterChainMatchOptions(mtls, lp)
-		chains := lb.inboundChainForOpts(cc, mtls, opts)
+		chains := lb.inboundChainForOpts(cc, mtls, opts, MainInternalName, 0)
 		for _, c := range chains {
 			lb.sanitizeFilterChainForHBONE(c)
 		}
@@ -239,7 +239,13 @@ func (lb *ListenerBuilder) buildInboundListeners() []*listener.Listener {
 			opts = getFilterChainMatchOptions(mtls, lp)
 		}
 		// Build the actual chain
-		chains := lb.inboundChainForOpts(cc, mtls, opts)
+		listenerName := model.VirtualInboundListenerName
+		listenerPort := uint32(lb.push.Mesh.ProxyInboundListenPort)
+		if cc.bindToPort {
+			listenerName = cc.Name(istionetworking.ListenerProtocolTCP)
+			listenerPort = cc.port.TargetPort
+		}
+		chains := lb.inboundChainForOpts(cc, mtls, opts, listenerName, listenerPort)
 
 		if cc.bindToPort {
 			// If this config is for bindToPort, we want to actually create a real Listener.
@@ -318,18 +324,26 @@ func (lb *ListenerBuilder) buildInboundListener(name string, addresses []string,
 }
 
 // inboundChainForOpts builds a set of filter chains
-func (lb *ListenerBuilder) inboundChainForOpts(cc inboundChainConfig, mtls authn.MTLSSettings, opts []FilterChainMatchOptions) []*listener.FilterChain {
+func (lb *ListenerBuilder) inboundChainForOpts(
+	cc inboundChainConfig,
+	mtls authn.MTLSSettings,
+	opts []FilterChainMatchOptions,
+	listenerName string,
+	listenerPort uint32,
+) []*listener.FilterChain {
 	chains := make([]*listener.FilterChain, 0, len(opts))
 	for _, opt := range opts {
 		var filterChain *listener.FilterChain
 		switch opt.Protocol {
 		// Switch on the protocol. Note: we do not need to handle Auto protocol as it will already be split into a TCP and HTTP option.
 		case istionetworking.ListenerProtocolHTTP:
+			match := cc.ToFilterChainMatch(opt)
+			chainName := cc.Name(opt.Protocol)
 			filterChain = &listener.FilterChain{
-				FilterChainMatch: cc.ToFilterChainMatch(opt),
-				Filters:          lb.buildInboundNetworkFiltersForHTTP(cc),
+				FilterChainMatch: match,
+				Filters:          lb.buildInboundNetworkFiltersForHTTP(cc, listenerName, listenerPort, chainName, match),
 				TransportSocket:  buildDownstreamTLSTransportSocket(opt.ToTransportSocket(mtls)),
-				Name:             cc.Name(opt.Protocol),
+				Name:             chainName,
 			}
 
 		case istionetworking.ListenerProtocolTCP:
@@ -747,7 +761,7 @@ func buildInboundHBONEPassthroughChain(lb *ListenerBuilder) []*listener.FilterCh
 	}
 
 	opts := getFilterChainMatchOptions(mtls, istionetworking.ListenerProtocolAuto)
-	return lb.inboundChainForOpts(cc, mtls, opts)
+	return lb.inboundChainForOpts(cc, mtls, opts, model.VirtualInboundListenerName, uint32(lb.push.Mesh.ProxyInboundListenPort))
 }
 
 // buildInboundPassthroughChains builds the passthrough chains. These match any unmatched traffic.
@@ -776,7 +790,7 @@ func buildInboundPassthroughChains(lb *ListenerBuilder) []*listener.FilterChain 
 			hbone:       lb.node.IsWaypointProxy(),
 		}
 		opts := getFilterChainMatchOptions(mtls, istionetworking.ListenerProtocolAuto)
-		filterChains = append(filterChains, lb.inboundChainForOpts(cc, mtls, opts)...)
+		filterChains = append(filterChains, lb.inboundChainForOpts(cc, mtls, opts, model.VirtualInboundListenerName, uint32(lb.push.Mesh.ProxyInboundListenPort))...)
 	}
 
 	return filterChains
@@ -851,7 +865,13 @@ func buildSidecarInboundHTTPOpts(lb *ListenerBuilder, cc inboundChainConfig) *ht
 
 // buildInboundNetworkFiltersForHTTP builds the network filters that should be inserted before an HCM.
 // This should only be used with HTTP; see buildInboundNetworkFilters for TCP
-func (lb *ListenerBuilder) buildInboundNetworkFiltersForHTTP(cc inboundChainConfig) []*listener.Filter {
+func (lb *ListenerBuilder) buildInboundNetworkFiltersForHTTP(
+	cc inboundChainConfig,
+	listenerName string,
+	listenerPort uint32,
+	filterChainName string,
+	match *listener.FilterChainMatch,
+) []*listener.Filter {
 	// Add network level WASM filters if any configured.
 	httpOpts := buildSidecarInboundHTTPOpts(lb, cc)
 	wasm := lb.push.WasmPluginsByListenerInfo(lb.node, model.WasmPluginListenerInfo{
@@ -873,7 +893,15 @@ func (lb *ListenerBuilder) buildInboundNetworkFiltersForHTTP(cc inboundChainConf
 	filters = extension.PopAppendNetwork(filters, wasm, extensions.PluginPhase_STATS)
 	filters = extension.PopAppendNetwork(filters, wasm, extensions.PluginPhase_UNSPECIFIED_PHASE)
 
-	h := lb.buildHTTPConnectionManager(httpOpts)
+	lis := &listener.Listener{
+		Name:    listenerName,
+		Address: util.BuildAddress("0.0.0.0", listenerPort),
+	}
+	fc := &listener.FilterChain{
+		Name:             filterChainName,
+		FilterChainMatch: match,
+	}
+	h := lb.buildHTTPConnectionManager(httpOpts, lis, fc, networking.EnvoyFilter_SIDECAR_INBOUND)
 	filters = append(filters, &listener.Filter{
 		Name:       wellknown.HTTPConnectionManager,
 		ConfigType: &listener.Filter_TypedConfig{TypedConfig: protoconv.MessageToAny(h)},

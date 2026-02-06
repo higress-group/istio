@@ -896,7 +896,7 @@ func TestHCMInternalAddressConfig(t *testing.T) {
 				authzCustomBuilder: &authz.Builder{},
 				authzBuilder:       &authz.Builder{},
 			}
-			httpConnManager := lb.buildHTTPConnectionManager(&httpListenerOpts{})
+			httpConnManager := lb.buildHTTPConnectionManager(&httpListenerOpts{}, nil, nil, networking.EnvoyFilter_ANY)
 			if !reflect.DeepEqual(tt.expectedconfig, httpConnManager.InternalAddressConfig) {
 				t.Errorf("unexpected internal address config, expected: %v, got :%v", tt.expectedconfig, httpConnManager.InternalAddressConfig)
 			}
@@ -965,7 +965,7 @@ func TestUseRemoteAddressInternalAddressConfig(t *testing.T) {
 				authzCustomBuilder: &authz.Builder{},
 				authzBuilder:       &authz.Builder{},
 			}
-			httpConnManager := lb.buildHTTPConnectionManager(&httpListenerOpts{useRemoteAddress: true})
+			httpConnManager := lb.buildHTTPConnectionManager(&httpListenerOpts{useRemoteAddress: true}, nil, nil, networking.EnvoyFilter_ANY)
 			if !reflect.DeepEqual(tt.expectedconfig, httpConnManager.InternalAddressConfig) {
 				t.Errorf("unexpected internal address config, expected: %v, got :%v", tt.expectedconfig, httpConnManager.InternalAddressConfig)
 			}
@@ -1058,7 +1058,7 @@ func TestPreserveHeader(t *testing.T) {
 				authzCustomBuilder: &authz.Builder{},
 				authzBuilder:       &authz.Builder{},
 			}
-			assert.NoError(t, tt.isExpected(lb.buildHTTPConnectionManager(tt.opts)))
+			assert.NoError(t, tt.isExpected(lb.buildHTTPConnectionManager(tt.opts, nil, nil, networking.EnvoyFilter_ANY)))
 		})
 	}
 }

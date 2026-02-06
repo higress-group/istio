@@ -322,7 +322,7 @@ func (lb *ListenerBuilder) buildWaypointInternal(wls []model.WorkloadInfo, svcs 
 			}
 			cc.clusterName = httpClusterName
 			httpChain = &listener.FilterChain{
-				Filters: append(slices.Clone(filters), lb.buildWaypointInboundHTTPFilters(svc, cc)...),
+				Filters: append(slices.Clone(filters), lb.buildWaypointInboundHTTPFilters(svc, cc, MainInternalName, 0, cc.clusterName, nil)...),
 				Name:    cc.clusterName,
 			}
 			if isEastWestGateway && features.EnableAmbientMultiNetwork {
@@ -417,7 +417,7 @@ func (lb *ListenerBuilder) buildWaypointInternal(wls []model.WorkloadInfo, svcs 
 			Filters: append([]*listener.Filter{
 				xdsfilters.ConnectAuthorityNetworkFilter,
 			},
-				lb.buildWaypointInboundHTTPFilters(nil, cc)...),
+				lb.buildWaypointInboundHTTPFilters(nil, cc, MainInternalName, 0, "direct-http", nil)...),
 			Name: "direct-http",
 		}
 
@@ -653,7 +653,14 @@ func (lb *ListenerBuilder) buildWaypointHTTPFilters(svc *model.Service) (pre []*
 
 // buildWaypointInboundHTTPFilters builds the network filters that should be inserted before an HCM.
 // This should only be used with HTTP; see buildInboundNetworkFilters for TCP
-func (lb *ListenerBuilder) buildWaypointInboundHTTPFilters(svc *model.Service, cc inboundChainConfig) []*listener.Filter {
+func (lb *ListenerBuilder) buildWaypointInboundHTTPFilters(
+	svc *model.Service,
+	cc inboundChainConfig,
+	listenerName string,
+	listenerPort uint32,
+	filterChainName string,
+	match *listener.FilterChainMatch,
+) []*listener.Filter {
 	pre, post := lb.buildWaypointHTTPFilters(svc)
 	ph := GetProxyHeaders(lb.node, lb.push, istionetworking.ListenerClassSidecarInbound)
 	var filters []*listener.Filter
@@ -683,7 +690,15 @@ func (lb *ListenerBuilder) buildWaypointInboundHTTPFilters(svc *model.Service, c
 			AcceptHttp_10: true,
 		}
 	}
-	h := lb.buildHTTPConnectionManager(httpOpts)
+	lis := &listener.Listener{
+		Name:    listenerName,
+		Address: util.BuildAddress("0.0.0.0", listenerPort),
+	}
+	fc := &listener.FilterChain{
+		Name:             filterChainName,
+		FilterChainMatch: match,
+	}
+	h := lb.buildHTTPConnectionManager(httpOpts, lis, fc, networking.EnvoyFilter_SIDECAR_INBOUND)
 
 	// Last filter must be router.
 	router := h.HttpFilters[len(h.HttpFilters)-1]

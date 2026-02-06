@@ -29,6 +29,7 @@ import (
 	"github.com/google/uuid"
 	"google.golang.org/protobuf/testing/protocmp"
 	"google.golang.org/protobuf/types/known/durationpb"
+	"google.golang.org/protobuf/types/known/structpb"
 	wrappers "google.golang.org/protobuf/types/known/wrapperspb"
 
 	extensions "istio.io/api/extensions/v1alpha1"
@@ -4596,6 +4597,117 @@ func TestGatewayFilterChainSNIOverlap(t *testing.T) {
 			xdstest.ValidateListeners(t, builder.gatewayListeners)
 		})
 	}
+}
+
+func TestGatewayWasmEnvoyFilterMixedOrdering(t *testing.T) {
+	buildHTTPFilterPatch := func(name string) *networking.EnvoyFilter_EnvoyConfigObjectPatch {
+		val, err := structpb.NewStruct(map[string]any{"name": name})
+		if err != nil {
+			t.Fatalf("failed to build patch struct: %v", err)
+		}
+		return &networking.EnvoyFilter_EnvoyConfigObjectPatch{
+			ApplyTo: networking.EnvoyFilter_HTTP_FILTER,
+			Match: &networking.EnvoyFilter_EnvoyConfigObjectMatch{
+				Context: networking.EnvoyFilter_GATEWAY,
+				ObjectTypes: &networking.EnvoyFilter_EnvoyConfigObjectMatch_Listener{
+					Listener: &networking.EnvoyFilter_ListenerMatch{
+						PortNumber: 80,
+						FilterChain: &networking.EnvoyFilter_ListenerMatch_FilterChainMatch{
+							Filter: &networking.EnvoyFilter_ListenerMatch_FilterMatch{
+								Name: wellknown.HTTPConnectionManager,
+							},
+						},
+					},
+				},
+			},
+			Patch: &networking.EnvoyFilter_Patch{
+				Operation: networking.EnvoyFilter_Patch_ADD,
+				Value:     val,
+			},
+		}
+	}
+
+	gateway := config.Config{
+		Meta: config.Meta{Name: "gw", Namespace: "default", GroupVersionKind: gvk.Gateway},
+		Spec: &networking.Gateway{
+			Selector: map[string]string{"istio": "ingressgateway"},
+			Servers: []*networking.Server{
+				{
+					Hosts: []string{"example.org"},
+					Port:  &networking.Port{Name: "http", Number: 80, Protocol: "HTTP"},
+				},
+			},
+		},
+	}
+	wasmAuthn := config.Config{
+		Meta: config.Meta{Name: "gw-wasm-authn", Namespace: "istio-system", GroupVersionKind: gvk.WasmPlugin},
+		Spec: &extensions.WasmPlugin{
+			Phase:    extensions.PluginPhase_AUTHN,
+			Type:     extensions.PluginType_HTTP,
+			Url:      "oci://example.com/wasm-authn",
+			Priority: &wrappers.Int32Value{Value: 100},
+		},
+	}
+	envoyFilter := config.Config{
+		Meta: config.Meta{
+			Name:              "gw-custom-authn",
+			Namespace:         "istio-system",
+			GroupVersionKind:  gvk.EnvoyFilter,
+			CreationTimestamp: time.Unix(1, 0),
+		},
+		Spec: &networking.EnvoyFilter{
+			WasmPhase:    extensions.PluginPhase_AUTHN,
+			WasmPriority: 50,
+			ConfigPatches: []*networking.EnvoyFilter_EnvoyConfigObjectPatch{
+				buildHTTPFilterPatch("gw-custom-authn"),
+			},
+		},
+	}
+
+	cg := NewConfigGenTest(t, TestOptions{
+		Configs: []config.Config{gateway, wasmAuthn, envoyFilter},
+	})
+	proxy := cg.SetupProxy(&proxyGateway)
+	metadata := proxyGatewayMetadata
+	proxy.Metadata = &metadata
+
+	builder := cg.ConfigGen.buildGatewayListeners(NewListenerBuilder(proxy, cg.PushContext()))
+
+	listenertest.VerifyListeners(t, builder.gatewayListeners, listenertest.ListenersTest{
+		Listener: listenertest.ListenerTest{
+			FilterChains: []listenertest.FilterChainTest{
+				{
+					ValidateHCM: func(t test.Failer, h *hcm.HttpConnectionManager) {
+						names := make([]string, 0, len(h.HttpFilters))
+						for _, hf := range h.HttpFilters {
+							names = append(names, hf.Name)
+						}
+						wasmName := pilot_model.WasmPluginResourceNamePrefix + "istio-system.gw-wasm-authn"
+						expectOrder := []string{wasmName, "gw-custom-authn"}
+						index := func(name string) int {
+							for i, n := range names {
+								if n == name {
+									return i
+								}
+							}
+							return -1
+						}
+						last := -1
+						for _, name := range expectOrder {
+							idx := index(name)
+							if idx == -1 {
+								t.Fatalf("missing filter %q in %v", name, names)
+							}
+							if idx <= last {
+								t.Fatalf("expected order %v, got %v", expectOrder, names)
+							}
+							last = idx
+						}
+					},
+				},
+			},
+		},
+	})
 }
 
 func TestGatewayHCMInternalAddressConfig(t *testing.T) {
