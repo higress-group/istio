@@ -3254,6 +3254,171 @@ func TestWaypointServiceBindingUsesAmbientIndex(t *testing.T) {
 	}
 }
 
+func TestWaypointWasmEnvoyFilterMixedOrdering(t *testing.T) {
+	test.SetForTest(t, &features.EnableAmbient, true)
+	test.SetForTest(t, &features.EnableAmbientWaypoints, true)
+
+	svc := buildService("svc-a.default.svc.cluster.local", wildcardIPv4, protocol.HTTP, tnow)
+
+	makeTarget := func(svc *model.Service) model.ServiceTarget {
+		return model.ServiceTarget{
+			Service: svc,
+			Port: model.ServiceInstancePort{
+				ServicePort: svc.Ports[0],
+				TargetPort:  8080,
+			},
+		}
+	}
+
+	svcInfo := model.ServiceInfo{
+		Service: &workloadapi.Service{
+			Name:      "svc-a",
+			Namespace: "default",
+			Hostname:  "svc-a.default.svc.cluster.local",
+		},
+	}
+
+	wpDiscovery := &waypointAmbientRegistry{
+		ServiceDiscovery: memory.NewServiceDiscovery(),
+		services:         []model.ServiceInfo{svcInfo},
+		match: func(key model.WaypointKey) bool {
+			return slices.Contains(key.Hostnames, svc.Hostname.String())
+		},
+	}
+	wpRegistry := serviceregistry.Simple{
+		ProviderID:          provider.Mock,
+		ClusterID:           cluster.ID(provider.Mock),
+		DiscoveryController: wpDiscovery,
+	}
+
+	wasmAuthn := config.Config{
+		Meta: config.Meta{Name: "wp-wasm-authn", Namespace: "istio-system", GroupVersionKind: gvk.WasmPlugin},
+		Spec: &extensions.WasmPlugin{
+			Phase:    extensions.PluginPhase_AUTHN,
+			Type:     extensions.PluginType_HTTP,
+			Url:      "oci://example.com/wp-wasm-authn",
+			Priority: &wrappers.Int32Value{Value: 100},
+		},
+	}
+
+	envoyFilter := config.Config{
+		Meta: config.Meta{
+			Name:              "wp-custom-authn",
+			Namespace:         "istio-system",
+			GroupVersionKind:  gvk.EnvoyFilter,
+			CreationTimestamp: time.Unix(1, 0),
+		},
+		Spec: &networking.EnvoyFilter{
+			WasmPhase:    extensions.PluginPhase_AUTHN,
+			WasmPriority: 50,
+			ConfigPatches: []*networking.EnvoyFilter_EnvoyConfigObjectPatch{
+				{
+					ApplyTo: networking.EnvoyFilter_HTTP_FILTER,
+					Match: &networking.EnvoyFilter_EnvoyConfigObjectMatch{
+						Context: networking.EnvoyFilter_SIDECAR_INBOUND,
+						ObjectTypes: &networking.EnvoyFilter_EnvoyConfigObjectMatch_Listener{
+							Listener: &networking.EnvoyFilter_ListenerMatch{
+								Name: MainInternalName,
+								FilterChain: &networking.EnvoyFilter_ListenerMatch_FilterChainMatch{
+									Filter: &networking.EnvoyFilter_ListenerMatch_FilterMatch{
+										Name: wellknown.HTTPConnectionManager,
+									},
+								},
+							},
+						},
+					},
+					Patch: &networking.EnvoyFilter_Patch{
+						Operation: networking.EnvoyFilter_Patch_ADD,
+						Value:     buildPatchStruct(`{"name":"wp-custom-authn"}`),
+					},
+				},
+			},
+		},
+	}
+
+	insertBeforeRouter := config.Config{
+		Meta: config.Meta{
+			Name:              "wp-insert-before-router",
+			Namespace:         "istio-system",
+			GroupVersionKind:  gvk.EnvoyFilter,
+			CreationTimestamp: time.Unix(2, 0),
+		},
+		Spec: &networking.EnvoyFilter{
+			ConfigPatches: []*networking.EnvoyFilter_EnvoyConfigObjectPatch{
+				{
+					ApplyTo: networking.EnvoyFilter_HTTP_FILTER,
+					Match: &networking.EnvoyFilter_EnvoyConfigObjectMatch{
+						Context: networking.EnvoyFilter_SIDECAR_INBOUND,
+						ObjectTypes: &networking.EnvoyFilter_EnvoyConfigObjectMatch_Listener{
+							Listener: &networking.EnvoyFilter_ListenerMatch{
+								Name: MainInternalName,
+								FilterChain: &networking.EnvoyFilter_ListenerMatch_FilterChainMatch{
+									Filter: &networking.EnvoyFilter_ListenerMatch_FilterMatch{
+										Name:      wellknown.HTTPConnectionManager,
+										SubFilter: &networking.EnvoyFilter_ListenerMatch_SubFilterMatch{Name: wellknown.Router},
+									},
+								},
+							},
+						},
+					},
+					Patch: &networking.EnvoyFilter_Patch{
+						Operation: networking.EnvoyFilter_Patch_INSERT_BEFORE,
+						Value:     buildPatchStruct(`{"name":"wp-insert-before-router"}`),
+					},
+				},
+			},
+		},
+	}
+
+	cg := NewConfigGenTest(t, TestOptions{
+		Services:          []*model.Service{svc},
+		Configs:           []config.Config{wasmAuthn, envoyFilter, insertBeforeRouter},
+		ServiceRegistries: []serviceregistry.Instance{wpRegistry},
+	})
+	cg.MemRegistry.WantGetProxyServiceTargets = []model.ServiceTarget{makeTarget(svc)}
+
+	proxy := &model.Proxy{Type: model.Waypoint, ConfigNamespace: "default"}
+	proxy = cg.SetupProxy(proxy)
+	listeners := cg.Listeners(proxy)
+
+	var mainListener *listener.Listener
+	for _, l := range listeners {
+		if l.Name == MainInternalName {
+			mainListener = l
+			break
+		}
+	}
+	if mainListener == nil {
+		t.Fatalf("expected waypoint listener %q", MainInternalName)
+	}
+
+	svcChain := model.BuildSubsetKey(model.TrafficDirectionInboundVIP, "http", svc.Hostname, svc.Ports[0].Port)
+	var chain *listener.FilterChain
+	for _, fc := range mainListener.FilterChains {
+		if fc.Name == svcChain {
+			chain = fc
+			break
+		}
+	}
+	if chain == nil {
+		t.Fatalf("missing filter chain for bound service %q", svc.Hostname)
+	}
+
+	h := xdstest.ExtractHTTPConnectionManager(t, chain)
+	if h == nil {
+		t.Fatalf("no HTTP connection manager found for bound service chain")
+	}
+
+	filterNames := make([]string, 0, len(h.HttpFilters))
+	for _, hf := range h.HttpFilters {
+		filterNames = append(filterNames, hf.Name)
+	}
+
+	wasmName := model.WasmPluginResourceNamePrefix + "istio-system.wp-wasm-authn"
+	assertInOrder(t, filterNames, wasmName, "wp-custom-authn")
+	assertInOrder(t, filterNames, "wp-insert-before-router", wellknown.Router)
+}
+
 func assertInOrder(t *testing.T, names []string, ordered ...string) {
 	t.Helper()
 	index := func(name string) int {

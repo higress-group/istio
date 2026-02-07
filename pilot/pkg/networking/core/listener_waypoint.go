@@ -40,7 +40,6 @@ import (
 	"istio.io/istio/pilot/pkg/features"
 	"istio.io/istio/pilot/pkg/model"
 	istionetworking "istio.io/istio/pilot/pkg/networking"
-	"istio.io/istio/pilot/pkg/networking/core/extension"
 	"istio.io/istio/pilot/pkg/networking/core/match"
 	istio_route "istio.io/istio/pilot/pkg/networking/core/route"
 	"istio.io/istio/pilot/pkg/networking/core/tunnelingconfig"
@@ -620,7 +619,10 @@ func buildConnectOriginateListener(push *model.PushContext, proxy *model.Proxy, 
 
 // buildWaypointHTTPFilters augments the common chain of Waypoint-bound HTTP filters.
 // Authn/authz filters are pre-pended. Telemetry filters are appended.
-func (lb *ListenerBuilder) buildWaypointHTTPFilters(svc *model.Service) (pre []*hcm.HttpFilter, post []*hcm.HttpFilter) {
+func (lb *ListenerBuilder) buildWaypointHTTPFilters(
+	svc *model.Service,
+	wasmPhasePatches map[extensions.PluginPhase][]*model.EnvoyFilterConfigPatchWrapper,
+) (pre []*hcm.HttpFilter, post []*hcm.HttpFilter) {
 	authzCustomBuilder := lb.authzCustomBuilder
 	authzBuilder := lb.authzBuilder
 	authnBuilder := lb.authnBuilder
@@ -639,13 +641,13 @@ func (lb *ListenerBuilder) buildWaypointHTTPFilters(svc *model.Service) (pre []*
 	// TODO: how to deal with ext-authz? It will be in the ordering twice
 	// TODO policies here will need to be different per-chain (service attached)
 	pre = append(pre, authzCustomBuilder.BuildHTTP(cls)...)
-	pre = extension.PopAppendHTTP(pre, wasm, extensions.PluginPhase_AUTHN)
+	pre = appendMixedHTTPFilters(pre, wasm, wasmPhasePatches, extensions.PluginPhase_AUTHN)
 	pre = append(pre, authnBuilder.BuildHTTP(cls)...)
-	pre = extension.PopAppendHTTP(pre, wasm, extensions.PluginPhase_AUTHZ)
+	pre = appendMixedHTTPFilters(pre, wasm, wasmPhasePatches, extensions.PluginPhase_AUTHZ)
 	pre = append(pre, authzBuilder.BuildHTTP(cls)...)
 	// TODO: these feel like the wrong place to insert, but this retains backwards compatibility with the original implementation
-	post = extension.PopAppendHTTP(post, wasm, extensions.PluginPhase_STATS)
-	post = extension.PopAppendHTTP(post, wasm, extensions.PluginPhase_UNSPECIFIED_PHASE)
+	post = appendMixedHTTPFilters(post, wasm, wasmPhasePatches, extensions.PluginPhase_STATS)
+	post = appendMixedHTTPFilters(post, wasm, wasmPhasePatches, extensions.PluginPhase_UNSPECIFIED_PHASE)
 	post = append(post, xdsfilters.WaypointUpstreamMetadataFilter)
 	post = append(post, lb.push.Telemetry.HTTPFilters(lb.node, cls, svc)...)
 	return
@@ -661,7 +663,16 @@ func (lb *ListenerBuilder) buildWaypointInboundHTTPFilters(
 	filterChainName string,
 	match *listener.FilterChainMatch,
 ) []*listener.Filter {
-	pre, post := lb.buildWaypointHTTPFilters(svc)
+	lis := &listener.Listener{
+		Name:    listenerName,
+		Address: util.BuildAddress("0.0.0.0", listenerPort),
+	}
+	fc := &listener.FilterChain{
+		Name:             filterChainName,
+		FilterChainMatch: match,
+	}
+	wasmPhasePatches := lb.collectWasmPhaseHTTPAddPatches(networking.EnvoyFilter_SIDECAR_INBOUND, lis, fc)
+	pre, post := lb.buildWaypointHTTPFilters(svc, wasmPhasePatches)
 	ph := GetProxyHeaders(lb.node, lb.push, istionetworking.ListenerClassSidecarInbound)
 	var filters []*listener.Filter
 	httpOpts := &httpListenerOpts{
@@ -689,14 +700,6 @@ func (lb *ListenerBuilder) buildWaypointInboundHTTPFilters(
 		httpOpts.connectionManager.HttpProtocolOptions = &core.Http1ProtocolOptions{
 			AcceptHttp_10: true,
 		}
-	}
-	lis := &listener.Listener{
-		Name:    listenerName,
-		Address: util.BuildAddress("0.0.0.0", listenerPort),
-	}
-	fc := &listener.FilterChain{
-		Name:             filterChainName,
-		FilterChainMatch: match,
 	}
 	h := lb.buildHTTPConnectionManager(httpOpts, lis, fc, networking.EnvoyFilter_SIDECAR_INBOUND)
 
