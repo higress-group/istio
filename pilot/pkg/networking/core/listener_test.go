@@ -3023,6 +3023,180 @@ func TestWasmEnvoyFilterMixedOrderingWithListenerNameMatch(t *testing.T) {
 	assertInOrder(t, filterNames, wasmAuthnName, "custom-authn")
 }
 
+func TestWasmEnvoyFilterMixedOrderingWithUnsetWasmPluginPriority(t *testing.T) {
+	buildHTTPFilterPatch := func(port uint32, name string) *networking.EnvoyFilter_EnvoyConfigObjectPatch {
+		val, err := structpb.NewStruct(map[string]any{"name": name})
+		if err != nil {
+			t.Fatalf("failed to build patch struct: %v", err)
+		}
+		return &networking.EnvoyFilter_EnvoyConfigObjectPatch{
+			ApplyTo: networking.EnvoyFilter_HTTP_FILTER,
+			Match: &networking.EnvoyFilter_EnvoyConfigObjectMatch{
+				Context: networking.EnvoyFilter_SIDECAR_OUTBOUND,
+				ObjectTypes: &networking.EnvoyFilter_EnvoyConfigObjectMatch_Listener{
+					Listener: &networking.EnvoyFilter_ListenerMatch{
+						PortNumber: port,
+						FilterChain: &networking.EnvoyFilter_ListenerMatch_FilterChainMatch{
+							Filter: &networking.EnvoyFilter_ListenerMatch_FilterMatch{
+								Name: wellknown.HTTPConnectionManager,
+							},
+						},
+					},
+				},
+			},
+			Patch: &networking.EnvoyFilter_Patch{
+				Operation: networking.EnvoyFilter_Patch_ADD,
+				Value:     val,
+			},
+		}
+	}
+
+	wasmNoPriority := config.Config{
+		Meta: config.Meta{Name: "wasm-authn-no-priority", Namespace: "istio-system", GroupVersionKind: gvk.WasmPlugin},
+		Spec: &extensions.WasmPlugin{
+			Phase: extensions.PluginPhase_AUTHN,
+			Type:  extensions.PluginType_HTTP,
+			Url:   "oci://example.com/wasm-authn-no-priority",
+		},
+	}
+	envoyFilter := config.Config{
+		Meta: config.Meta{
+			Name:              "custom-authn",
+			Namespace:         "istio-system",
+			GroupVersionKind:  gvk.EnvoyFilter,
+			CreationTimestamp: time.Unix(1, 0),
+		},
+		Spec: &networking.EnvoyFilter{
+			WasmPhase:    extensions.PluginPhase_AUTHN,
+			WasmPriority: 0,
+			ConfigPatches: []*networking.EnvoyFilter_EnvoyConfigObjectPatch{
+				buildHTTPFilterPatch(8080, "custom-authn"),
+			},
+		},
+	}
+
+	proxy := getProxy()
+	listeners := buildListeners(t, TestOptions{
+		Services: []*model.Service{buildService("test.com", wildcardIPv4, protocol.HTTP, tnow)},
+		Configs:  []config.Config{wasmNoPriority, envoyFilter},
+	}, proxy)
+	l := xdstest.ExtractListener("0.0.0.0_8080", listeners)
+
+	var h *hcm.HttpConnectionManager
+	for _, fc := range l.FilterChains {
+		if extracted := xdstest.ExtractHTTPConnectionManager(t, fc); extracted != nil {
+			h = extracted
+			break
+		}
+	}
+	if h == nil {
+		t.Fatalf("no HTTP connection manager found")
+	}
+
+	filterNames := make([]string, 0, len(h.HttpFilters))
+	for _, hf := range h.HttpFilters {
+		filterNames = append(filterNames, hf.Name)
+	}
+
+	wasmName := model.WasmPluginResourceNamePrefix + "istio-system.wasm-authn-no-priority"
+	assertInOrder(t, filterNames, "custom-authn", wasmName)
+}
+
+func TestWasmEnvoyFilterMixedOrderingDeterministicWhenSameTimestamp(t *testing.T) {
+	buildHTTPFilterPatch := func(port uint32, name string) *networking.EnvoyFilter_EnvoyConfigObjectPatch {
+		val, err := structpb.NewStruct(map[string]any{"name": name})
+		if err != nil {
+			t.Fatalf("failed to build patch struct: %v", err)
+		}
+		return &networking.EnvoyFilter_EnvoyConfigObjectPatch{
+			ApplyTo: networking.EnvoyFilter_HTTP_FILTER,
+			Match: &networking.EnvoyFilter_EnvoyConfigObjectMatch{
+				Context: networking.EnvoyFilter_SIDECAR_OUTBOUND,
+				ObjectTypes: &networking.EnvoyFilter_EnvoyConfigObjectMatch_Listener{
+					Listener: &networking.EnvoyFilter_ListenerMatch{
+						PortNumber: port,
+						FilterChain: &networking.EnvoyFilter_ListenerMatch_FilterChainMatch{
+							Filter: &networking.EnvoyFilter_ListenerMatch_FilterMatch{
+								Name: wellknown.HTTPConnectionManager,
+							},
+						},
+					},
+				},
+			},
+			Patch: &networking.EnvoyFilter_Patch{
+				Operation: networking.EnvoyFilter_Patch_ADD,
+				Value:     val,
+			},
+		}
+	}
+
+	wasmAuthn := config.Config{
+		Meta: config.Meta{Name: "wasm-authn", Namespace: "istio-system", GroupVersionKind: gvk.WasmPlugin},
+		Spec: &extensions.WasmPlugin{
+			Phase:    extensions.PluginPhase_AUTHN,
+			Type:     extensions.PluginType_HTTP,
+			Url:      "oci://example.com/wasm-authn",
+			Priority: &wrappers.Int32Value{Value: 100},
+		},
+	}
+	envoyFilterB := config.Config{
+		Meta: config.Meta{
+			Name:              "custom-authn-b",
+			Namespace:         "istio-system",
+			GroupVersionKind:  gvk.EnvoyFilter,
+			CreationTimestamp: time.Unix(1, 0),
+		},
+		Spec: &networking.EnvoyFilter{
+			WasmPhase:    extensions.PluginPhase_AUTHN,
+			WasmPriority: 50,
+			ConfigPatches: []*networking.EnvoyFilter_EnvoyConfigObjectPatch{
+				buildHTTPFilterPatch(8080, "custom-authn-b"),
+			},
+		},
+	}
+	envoyFilterA := config.Config{
+		Meta: config.Meta{
+			Name:              "custom-authn-a",
+			Namespace:         "istio-system",
+			GroupVersionKind:  gvk.EnvoyFilter,
+			CreationTimestamp: time.Unix(1, 0),
+		},
+		Spec: &networking.EnvoyFilter{
+			WasmPhase:    extensions.PluginPhase_AUTHN,
+			WasmPriority: 50,
+			ConfigPatches: []*networking.EnvoyFilter_EnvoyConfigObjectPatch{
+				buildHTTPFilterPatch(8080, "custom-authn-a"),
+			},
+		},
+	}
+
+	proxy := getProxy()
+	listeners := buildListeners(t, TestOptions{
+		Services: []*model.Service{buildService("test.com", wildcardIPv4, protocol.HTTP, tnow)},
+		Configs:  []config.Config{wasmAuthn, envoyFilterB, envoyFilterA},
+	}, proxy)
+	l := xdstest.ExtractListener("0.0.0.0_8080", listeners)
+
+	var h *hcm.HttpConnectionManager
+	for _, fc := range l.FilterChains {
+		if extracted := xdstest.ExtractHTTPConnectionManager(t, fc); extracted != nil {
+			h = extracted
+			break
+		}
+	}
+	if h == nil {
+		t.Fatalf("no HTTP connection manager found")
+	}
+
+	filterNames := make([]string, 0, len(h.HttpFilters))
+	for _, hf := range h.HttpFilters {
+		filterNames = append(filterNames, hf.Name)
+	}
+
+	wasmAuthnName := model.WasmPluginResourceNamePrefix + "istio-system.wasm-authn"
+	assertInOrder(t, filterNames, wasmAuthnName, "custom-authn-a", "custom-authn-b")
+}
+
 func TestWaypointEnvoyFilterWasmPhaseAddApplied(t *testing.T) {
 	buildHTTPFilterPatch := func(name string) *networking.EnvoyFilter_EnvoyConfigObjectPatch {
 		val, err := structpb.NewStruct(map[string]any{"name": name})
