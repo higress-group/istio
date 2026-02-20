@@ -1,4 +1,4 @@
-// Copyright Istio Authors
+while building transport in go container// Copyright Istio Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -223,7 +223,7 @@ func convertWasmConfigFromRemoteToLocal(ec *core.TypedExtensionConfig, wasmHTTPF
 	}
 	// Default timeout. Without this if user does not specify a timeout in the config, it fails with deadline exceeded
 	// while building transport in go container.
-	timeout := time.Second * 5
+	timeout := time.Second * 300
 	if remote.GetHttpUri().Timeout != nil {
 		timeout = remote.GetHttpUri().Timeout.AsDuration()
 	}
