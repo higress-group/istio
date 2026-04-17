@@ -19,6 +19,8 @@ import (
 	"fmt"
 	"math"
 	"net"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -108,6 +110,9 @@ type XdsProxy struct {
 	ecdsLastNonce         atomic.String
 	downstreamGrpcOptions []grpc.ServerOption
 	istiodSAN             string
+	// Added by ingress
+	lastEcdsPushVersionInfo string
+	// End added by ingress
 }
 
 var proxyLog = log.RegisterScope("xdsproxy", "XDS Proxy in Istio Agent")
@@ -513,6 +518,9 @@ func (p *XdsProxy) handleUpstreamResponse(con *ProxyConnection) {
 			case model.ExtensionConfigurationType:
 				if features.WasmRemoteLoadConversion {
 					// If Wasm remote load conversion feature is enabled, rewrite and send.
+					// Added by ingress
+					p.lastEcdsPushVersionInfo = resp.VersionInfo
+					// End added by ingress
 					go p.rewriteAndForward(con, resp, func(resp *discovery.DiscoveryResponse) {
 						// Forward the response using the thread of `handleUpstreamResponse`
 						// to prevent concurrent access to forwardToEnvoy
@@ -529,7 +537,22 @@ func (p *XdsProxy) handleUpstreamResponse(con *ProxyConnection) {
 				forwardToEnvoy(con, resp)
 			}
 		case resp := <-forwardEnvoyCh:
-			forwardToEnvoy(con, resp)
+			// Modified by ingress
+			if !versionAfter(resp.VersionInfo, p.lastEcdsPushVersionInfo) {
+				err := fmt.Sprintf("received invalid ECDS version %s, lastest version %s", resp.VersionInfo, p.lastEcdsPushVersionInfo)
+				proxyLog.Info(err)
+				con.sendRequest(&discovery.DiscoveryRequest{
+					VersionInfo:   p.ecdsLastAckVersion.Load(),
+					TypeUrl:       model.ExtensionConfigurationType,
+					ResponseNonce: resp.Nonce,
+					ErrorDetail: &google_rpc.Status{
+						Message: err,
+					},
+				})
+			} else {
+				forwardToEnvoy(con, resp)
+			}
+			// End modified by ingress
 		case <-con.stopChan:
 			return
 		}
@@ -550,6 +573,7 @@ func (p *XdsProxy) rewriteAndForward(con *ProxyConnection, resp *discovery.Disco
 		})
 		return
 	}
+
 	proxyLog.Debugf("forward ECDS resources %+v", resp.Resources)
 	forward(resp)
 }
@@ -693,3 +717,39 @@ func downstreamErr(con *ProxyConnection, err error) {
 	case <-con.stopChan:
 	}
 }
+
+// Added by ingress
+func versionAfter(a, b string) bool {
+	if a == "" || b == "" || a == b {
+		return true
+	}
+	parts1 := strings.SplitN(a, "/", 2)
+	parts2 := strings.SplitN(b, "/", 2)
+
+	t1, err1 := time.Parse(time.RFC3339, parts1[0])
+	t2, err2 := time.Parse(time.RFC3339, parts2[0])
+
+	if err1 != nil || err2 != nil {
+		proxyLog.Errorf("Error parsing ecds version info times %v|%v", err1, err2)
+		return true
+	}
+
+	if t1.After(t2) {
+		return true
+	} else if t1.Before(t2) {
+		return false
+	}
+
+	num1, _ := strconv.Atoi(parts1[1])
+	num2, _ := strconv.Atoi(parts2[1])
+
+	if num1 < num2 {
+		return false
+	} else if num1 > num2 {
+		return true
+	}
+
+	return true
+}
+
+// End added by ingress

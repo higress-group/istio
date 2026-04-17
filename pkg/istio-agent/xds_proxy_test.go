@@ -611,3 +611,85 @@ func setupDownstreamConnectionUDS(t test.Failer, path string) *grpc.ClientConn {
 func setupDownstreamConnection(t *testing.T, proxy *XdsProxy) *grpc.ClientConn {
 	return setupDownstreamConnectionUDS(t, proxy.xdsUdsPath)
 }
+
+// Added by ingress
+func TestVersionAfter(t *testing.T) {
+	tests := []struct {
+		name     string
+		a        string
+		b        string
+		expected bool
+	}{
+		{
+			name:     "both empty",
+			a:        "",
+			b:        "",
+			expected: true,
+		},
+		{
+			name:     "a empty",
+			a:        "",
+			b:        "2024-11-13T10:00:00Z/1",
+			expected: true,
+		},
+		{
+			name:     "b empty",
+			a:        "2024-11-13T10:00:00Z/1",
+			b:        "",
+			expected: true,
+		},
+		{
+			name:     "equal versions",
+			a:        "2024-11-13T10:00:00Z/1",
+			b:        "2024-11-13T10:00:00Z/1",
+			expected: true,
+		},
+		{
+			name:     "a has later time",
+			a:        "2024-11-13T11:00:00Z/1",
+			b:        "2024-11-13T10:00:00Z/1",
+			expected: true,
+		},
+		{
+			name:     "a has earlier time",
+			a:        "2024-11-13T09:00:00Z/1",
+			b:        "2024-11-13T10:00:00Z/1",
+			expected: false,
+		},
+		{
+			name:     "same time a has higher sequence",
+			a:        "2024-11-13T10:00:00Z/2",
+			b:        "2024-11-13T10:00:00Z/1",
+			expected: true,
+		},
+		{
+			name:     "same time a has lower sequence",
+			a:        "2024-11-13T10:00:00Z/1",
+			b:        "2024-11-13T10:00:00Z/2",
+			expected: false,
+		},
+		{
+			name:     "same time same sequence",
+			a:        "2024-11-13T10:00:00Z/1",
+			b:        "2024-11-13T10:00:00Z/1",
+			expected: true,
+		},
+		{
+			name:     "invalid time format returns true",
+			a:        "invalid/1",
+			b:        "2024-11-13T10:00:00Z/1",
+			expected: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := versionAfter(tt.a, tt.b)
+			if result != tt.expected {
+				t.Errorf("versionAfter(%q, %q) = %v, want %v", tt.a, tt.b, result, tt.expected)
+			}
+		})
+	}
+}
+
+// End added by ingress
