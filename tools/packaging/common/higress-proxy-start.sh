@@ -6,5 +6,5 @@ fi
 
 nohup supercronic /var/lib/istio/cron.txt &> /dev/null &
 
-/usr/local/bin/pilot-agent $*
+exec /usr/local/bin/pilot-agent "$@"
 
