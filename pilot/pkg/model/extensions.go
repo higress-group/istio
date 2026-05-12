@@ -167,22 +167,14 @@ func (p *WasmPluginWrapper) buildPluginConfig(proxy *Proxy) *wasmextensions.Plug
 		Vm:            buildVMConfig(datasource, p.ResourceVersion, plugin),
 	}
 
-	// todo: wait go-control-plane to support
-	// FailOpen is deprecated in 1.25, remove this once v1.25 is EOL.
-	//if proxy.VersionGreaterOrEqual(&IstioVersion{Major: 1, Minor: 25, Patch: 0}) {
-	//	switch plugin.FailStrategy {
-	//	case extensions.FailStrategy_FAIL_OPEN:
-	//		wasmConfig.FailurePolicy = wasmextensions.FailurePolicy_FAIL_OPEN
-	//	case extensions.FailStrategy_FAIL_CLOSE:
-	//		wasmConfig.FailurePolicy = wasmextensions.FailurePolicy_FAIL_CLOSED
-	//	case extensions.FailStrategy_FAIL_RELOAD:
-	//		wasmConfig.FailurePolicy = wasmextensions.FailurePolicy_FAIL_RELOAD
-	//	}
-	//	// TODO: support more failure policies
-	//} else {
-	//	// nolint: staticcheck // FailOpen deprecated in 1.25
-	//	wasmConfig.FailOpen = plugin.FailStrategy == extensions.FailStrategy_FAIL_OPEN
-	//}
+	// Use the legacy fail_open bool instead of the new failure_policy enum:
+	// proxy-wasm-cpp-host's CHECK_FAIL macro only honors PluginBase::fail_open_, which is
+	// populated from config.fail_open(). A failure_policy=FAIL_OPEN alone would not take
+	// effect on mid-stream VM failures (e.g. wasm OOM during streaming response body).
+	// Setting only fail_open also avoids envoy's "only one of fail_open or failure_policy
+	// can be set" validation.
+	// nolint: staticcheck // fail_open is marked deprecated upstream but still honored
+	wasmConfig.FailOpen = plugin.FailStrategy == extensions.FailStrategy_FAIL_OPEN
 
 	return wasmConfig
 }
