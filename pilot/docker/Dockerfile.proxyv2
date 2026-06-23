@@ -11,6 +11,13 @@ FROM ${ISTIO_BASE_REGISTRY}/base:${BASE_VERSION} AS debug
 # The following section is used as base image if BASE_DISTRIBUTION=distroless
 FROM ${ISTIO_BASE_REGISTRY}/iptables:${BASE_VERSION} AS distroless
 
+FROM --platform=$BUILDPLATFORM golang:1.25.11-bookworm AS supercronic-builder
+ARG TARGETOS=linux
+ARG TARGETARCH=amd64
+ARG SUPERCRONIC_VERSION=v0.2.43
+ENV CGO_ENABLED=0
+RUN GOOS=${TARGETOS} GOARCH=${TARGETARCH} go install github.com/aptible/supercronic@${SUPERCRONIC_VERSION}
+
 # This will build the final image based on either debug or distroless from above
 # hadolint ignore=DL3006
 FROM ${BASE_DISTRIBUTION:-debug}
@@ -44,13 +51,10 @@ RUN apt-get update --allow-unauthenticated && \
   && apt-get upgrade -y --allow-unauthenticated \
   && apt-get clean
 
-# Latest releases available at https://github.com/aptible/supercronic/releases
-ENV SUPERCRONIC_URL=https://github.com/higress-group/proxy/releases/download/v2.2.0/supercronic-linux-${TARGETARCH:-amd64} \
-    SUPERCRONIC=supercronic-linux-${TARGETARCH:-amd64}
-
-RUN curl -fsSLO "$SUPERCRONIC_URL" \
- && chmod +x "$SUPERCRONIC" \
- && mv "$SUPERCRONIC" "/usr/local/bin/${SUPERCRONIC}" \
+# Build supercronic from source to keep the embedded Go runtime on the same patched toolchain.
+ENV SUPERCRONIC=supercronic-linux-${TARGETARCH:-amd64}
+COPY --from=supercronic-builder /go/bin/supercronic /usr/local/bin/${SUPERCRONIC}
+RUN chmod +x "/usr/local/bin/${SUPERCRONIC}" \
  && ln -s "/usr/local/bin/${SUPERCRONIC}" /usr/local/bin/supercronic
 
 
