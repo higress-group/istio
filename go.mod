@@ -26,7 +26,7 @@ require (
 	github.com/cheggaaa/pb/v3 v3.1.7
 	github.com/cncf/xds/go v0.0.0-20251210132809-ee656c7534f5
 	github.com/containernetworking/cni v1.3.0
-	github.com/containernetworking/plugins v1.7.1
+	github.com/containernetworking/plugins v1.9.0
 	github.com/coreos/go-oidc/v3 v3.14.1
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc
 	github.com/docker/cli v29.2.0+incompatible
