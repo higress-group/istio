@@ -213,6 +213,11 @@ var (
 	EnableRouteCollapse = env.Register("PILOT_ENABLE_ROUTE_COLLAPSE_OPTIMIZATION", true,
 		"If true, Pilot will merge virtual hosts with the same routes into a single virtual host, as an optimization.").Get()
 
+	// Add by Higress: keep Istio 1.19-compatible TLS verification behavior by default.
+	VerifyCertAtClient = env.Register("VERIFY_CERTIFICATE_AT_CLIENT", false,
+		"If enabled, certificates received by the proxy will be verified against the OS CA certificate bundle.").Get()
+	// End added by Higress.
+
 	MulticlusterHeadlessEnabled = env.Register("ENABLE_MULTICLUSTER_HEADLESS", true,
 		"If true, the DNS name table for a headless service will resolve to same-network endpoints in any cluster.").Get()
 

@@ -36,7 +36,6 @@ import (
 	xdsfilters "istio.io/istio/pilot/pkg/xds/filters"
 	"istio.io/istio/pkg/log"
 	pm "istio.io/istio/pkg/model"
-	"istio.io/istio/pkg/ptr"
 	"istio.io/istio/pkg/security"
 	"istio.io/istio/pkg/wellknown"
 )
@@ -205,9 +204,15 @@ func constructUpstreamTLS(opts *buildClusterOpts, tls *networking.ClientTLSSetti
 		// These are certs being mounted from within the pod and specified in Destination Rules.
 		// Rather than reading directly in Envoy, which does not support rotation, we will
 		// serve them over SDS by reading the files.
-		res := security.SdsCertificateConfig{
-			CaCertificatePath: ptr.NonEmptyOrDefault(tls.CaCertificates, "system"),
+		// Modified by Higress: restore Istio 1.19 VERIFY_CERTIFICATE_AT_CLIENT fallback without mutating shared TLS settings.
+		caCertificatePath := tls.CaCertificates
+		if features.VerifyCertAtClient && caCertificatePath == "" {
+			caCertificatePath = "system"
 		}
+		res := security.SdsCertificateConfig{
+			CaCertificatePath: caCertificatePath,
+		}
+		// End modified by Higress.
 		// If CredentialName is not set fallback to file based approach
 		if mutual {
 			if tls.ClientCertificate == "" || tls.PrivateKey == "" {
@@ -272,7 +277,7 @@ func applyTLSDefaults(tlsContext *tlsv3.UpstreamTlsContext, tlsDefaults *v1alpha
 }
 
 // Set auto_sni if sni field is not explicitly set in DR.
-// Set auto_san_validation if there is no explicit SubjectAltNames specified in DR.
+// Set auto_san_validation if VerifyCertAtClient is enabled and there is no explicit SubjectAltNames specified in DR.
 func setAutoSniAndAutoSanValidation(mc *clusterWrapper, tls *networking.ClientTLSSettings) {
 	if mc == nil {
 		return
@@ -283,9 +288,11 @@ func setAutoSniAndAutoSanValidation(mc *clusterWrapper, tls *networking.ClientTL
 	if len(tls.Sni) == 0 {
 		setAutoSni = true
 	}
-	if setAutoSni && len(tls.SubjectAltNames) == 0 && !tls.GetInsecureSkipVerify().GetValue() {
+	// Modified by Higress: keep auto SAN validation tied to VERIFY_CERTIFICATE_AT_CLIENT.
+	if features.VerifyCertAtClient && setAutoSni && len(tls.SubjectAltNames) == 0 && !tls.GetInsecureSkipVerify().GetValue() {
 		setAutoSanValidation = true
 	}
+	// End modified by Higress.
 
 	if setAutoSni || setAutoSanValidation {
 		if mc.httpProtocolOptions == nil {
