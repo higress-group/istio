@@ -91,9 +91,10 @@ type MergedGateway struct {
 	// PortMap defines a mapping of targetPorts to the set of Service ports that reference them
 	PortMap GatewayPortMap
 
-	// VerifiedCertificateReferences contains a set of all credentialNames referenced by gateways *in the same namespace as the proxy*.
-	// These are considered "verified", since there is mutually agreement from the pod, Secret, and Gateway, as all
-	// reside in the same namespace and trust boundary.
+	// VerifiedCertificateReferences contains a set of all credentialNames referenced by gateways.
+	// These are considered "verified" when the Secret is in the same namespace as the Gateway, or when a
+	// ReferenceGrant explicitly allows the cross-namespace reference. The Gateway does not need to be in the
+	// proxy namespace because a controller may use shared gateway workloads for Gateways in multiple namespaces.
 	// Note: Secrets that are not referenced by any Gateway, but are in the same namespace as the pod, are explicitly *not*
 	// included. This ensures we don't give permission to unexpected secrets, such as the citadel root key/cert.
 	VerifiedCertificateReferences sets.String
@@ -197,18 +198,15 @@ func mergeGateways(gateways []gatewayWithInstances, proxy *Proxy, ps *PushContex
 			cn := s.GetTls().GetCredentialName()
 			if cn != "" && proxy.VerifiedIdentity != nil {
 				gwKind := gvk.KubernetesGateway
-				lookupNamespace := proxy.VerifiedIdentity.Namespace
+				lookupNamespace := gatewayConfig.Namespace
 				if strings.HasPrefix(gatewayConfig.Annotations[constants.InternalParentNames], gvk.XListenerSet.Kind+"/") {
 					gwKind = gvk.XListenerSet
-					lookupNamespace = gatewayConfig.Namespace
 				}
 				// Ignore BuiltinGatewaySecretTypeURI, as it is not referencing a Secret at all
 				if !strings.HasPrefix(cn, credentials.BuiltinGatewaySecretTypeURI) {
 					rn := credentials.ToResourceName(cn)
 					parse, err := credentials.ParseResourceName(rn, proxy.VerifiedIdentity.Namespace, "", "")
-					// For ListenerSet, we do not require the config to live in the same namespace. However, there is a trust handshake via AllowedListeners.
-					configAndProxyAllowed := gatewayConfig.Namespace == proxy.VerifiedIdentity.Namespace || gwKind == gvk.XListenerSet
-					if err == nil && configAndProxyAllowed && parse.Namespace == lookupNamespace {
+					if err == nil && parse.Namespace == lookupNamespace {
 						// Same namespace is always allowed
 						verifiedCertificateReferences.Insert(rn)
 						if s.GetTls().GetMode() == networking.ServerTLSSettings_MUTUAL {
