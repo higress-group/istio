@@ -26,7 +26,7 @@ import (
 	cluster "github.com/envoyproxy/go-control-plane/envoy/config/cluster/v3"
 	core "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	endpoint "github.com/envoyproxy/go-control-plane/envoy/config/endpoint/v3"
-	//overridehost "github.com/envoyproxy/go-control-plane/envoy/extensions/load_balancing_policies/override_host/v3"
+	overridehost "github.com/envoyproxy/go-control-plane/envoy/extensions/load_balancing_policies/override_host/v3"
 	http "github.com/envoyproxy/go-control-plane/envoy/extensions/upstreams/http/v3"
 	"github.com/google/go-cmp/cmp"
 	. "github.com/onsi/gomega"
@@ -366,6 +366,34 @@ func TestConnectionPoolSettings(t *testing.T) {
 //		})
 //	}
 //}
+
+func TestBuildClustersForInferencePoolServicesSelectedHostKey(t *testing.T) {
+	g := NewWithT(t)
+	clusters := buildTestClusters(clusterTest{
+		t:                    t,
+		serviceHostname:      "*.example.org",
+		nodeType:             model.Router,
+		mesh:                 testMesh(),
+		istioVersion:         model.MaxIstioVersion,
+		inferencePoolCluster: true,
+	})
+	c := xdstest.ExtractCluster("outbound|8080||*.example.org", clusters)
+	g.Expect(c.GetLoadBalancingPolicy()).NotTo(BeNil())
+	g.Expect(c.GetLoadBalancingPolicy().GetPolicies()).NotTo(BeEmpty())
+
+	overrideHostPolicy := new(overridehost.OverrideHost)
+	err := c.GetLoadBalancingPolicy().GetPolicies()[0].GetTypedExtensionConfig().GetTypedConfig().
+		UnmarshalTo(overrideHostPolicy)
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(overrideHostPolicy.GetOverrideHostSources()).NotTo(BeEmpty())
+	g.Expect(overrideHostPolicy.GetOverrideHostSources()[0].GetMetadata().GetKey()).To(Equal("envoy.lb"))
+	g.Expect(overrideHostPolicy.GetOverrideHostSources()[0].GetMetadata().GetPath()[0].GetKey()).
+		To(Equal("x-gateway-destination-endpoint"))
+	g.Expect(overrideHostPolicy.GetSelectedHostKey()).NotTo(BeNil())
+	g.Expect(overrideHostPolicy.GetSelectedHostKey().GetKey()).To(Equal("envoy.lb"))
+	g.Expect(overrideHostPolicy.GetSelectedHostKey().GetPath()[0].GetKey()).
+		To(Equal("x-gateway-destination-endpoint-served"))
+}
 
 func TestCommonHttpProtocolOptions(t *testing.T) {
 	cases := []struct {
