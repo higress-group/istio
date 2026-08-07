@@ -395,6 +395,27 @@ func TestBuildClustersForInferencePoolServicesSelectedHostKey(t *testing.T) {
 		To(Equal("x-gateway-destination-endpoint-served"))
 }
 
+func TestInferencePoolBuildsSingleOutboundCluster(t *testing.T) {
+	hostname := "pool.default.svc.cluster.local"
+	clusters := buildTestClusters(clusterTest{
+		t:                    t,
+		serviceHostname:      hostname,
+		nodeType:             model.Router,
+		mesh:                 testMesh(),
+		inferencePoolCluster: true,
+	})
+
+	var got []string
+	for _, cluster := range clusters {
+		if strings.HasPrefix(cluster.Name, "outbound|") && strings.HasSuffix(cluster.Name, "||"+hostname) {
+			got = append(got, cluster.Name)
+		}
+	}
+	if diff := cmp.Diff([]string{"outbound|8080||" + hostname}, got); diff != "" {
+		t.Fatalf("unexpected InferencePool clusters (-want +got):\n%s", diff)
+	}
+}
+
 func TestCommonHttpProtocolOptions(t *testing.T) {
 	cases := []struct {
 		clusterName           string

@@ -2655,6 +2655,25 @@ func (ps *PushContext) BestEffortInferServiceMTLSMode(tp *networking.TrafficPoli
 // ServiceEndpointsByPort returns the cached instances by port if it exists.
 func (ps *PushContext) ServiceEndpointsByPort(svc *Service, port int, labels labels.Instance) []*IstioEndpoint {
 	var out []*IstioEndpoint
+	// InferencePool clusters contain every PodIP:targetPort endpoint so the EPP
+	// can select an exact endpoint independently of the dummy service port.
+	if svc.UseInferenceSemantics() {
+		instancesByPort := ps.ServiceIndex.instancesByPort[svc.Key()]
+		for _, servicePort := range svc.Ports {
+			instances := instancesByPort[servicePort.Port]
+			if len(labels) == 0 {
+				out = append(out, instances...)
+				continue
+			}
+			for _, instance := range instances {
+				if labels.SubsetOf(instance.Labels) {
+					out = append(out, instance)
+				}
+			}
+		}
+		return out
+	}
+
 	if instances, exists := ps.ServiceIndex.instancesByPort[svc.Key()][port]; exists {
 		// Use cached version of instances by port when labels are empty.
 		if len(labels) == 0 {

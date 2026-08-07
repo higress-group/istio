@@ -33,6 +33,8 @@ import (
 	"istio.io/istio/pilot/test/xdstest"
 	"istio.io/istio/pkg/cluster"
 	"istio.io/istio/pkg/config"
+	"istio.io/istio/pkg/config/constants"
+	"istio.io/istio/pkg/config/host"
 	"istio.io/istio/pkg/config/protocol"
 	"istio.io/istio/pkg/config/schema/gvk"
 	"istio.io/istio/pkg/network"
@@ -209,6 +211,35 @@ var networkFiltered = []networkFilterCase{
 			";;;;cluster2b",
 		},
 	},
+}
+
+func TestInferencePoolEDSIncludesAllTargetPorts(t *testing.T) {
+	serviceHostname := host.Name("pool.default.svc.cluster.local")
+	service := &model.Service{
+		Hostname: serviceHostname,
+		Ports: model.PortList{
+			{Name: "http-0", Port: 54321, Protocol: protocol.HTTP},
+			{Name: "http-1", Port: 54322, Protocol: protocol.HTTP},
+		},
+		Attributes: model.ServiceAttributes{
+			Name:      "pool",
+			Namespace: "default",
+			Labels: map[string]string{
+				constants.InternalServiceSemantics: constants.ServiceSemanticsInferencePool,
+			},
+		},
+	}
+	ds := xds.NewFakeDiscoveryServer(t, xds.FakeOptions{Services: []*model.Service{service}})
+	ds.MemRegistry.AddEndpoint(serviceHostname, "http-0", 54321, "10.0.0.1", 8000)
+	ds.MemRegistry.AddEndpoint(serviceHostname, "http-1", 54322, "10.0.0.1", 8001)
+	ds.EnsureSynced(t)
+
+	proxy := ds.SetupProxy(&model.Proxy{Type: model.Router})
+	builder := endpoints.NewEndpointBuilder("outbound|54321||"+string(serviceHostname), proxy, ds.PushContext())
+	got := xdstest.ExtractEndpoints(builder.BuildClusterLoadAssignment(ds.Discovery.Env.EndpointIndex))
+	if diff := cmp.Diff([]string{"10.0.0.1:8000", "10.0.0.1:8001"}, got); diff != "" {
+		t.Fatalf("unexpected InferencePool endpoints (-want +got):\n%s", diff)
+	}
 }
 
 var mtlsCases = map[string]map[string]struct {

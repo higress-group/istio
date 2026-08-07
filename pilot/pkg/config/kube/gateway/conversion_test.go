@@ -77,6 +77,24 @@ var ports = []*model.Port{
 	},
 }
 
+var inferencePoolPorts = []*model.Port{
+	{
+		Name:     "http-0",
+		Port:     54321,
+		Protocol: "HTTP",
+	},
+	{
+		Name:     "http-1",
+		Port:     54322,
+		Protocol: "HTTP",
+	},
+	{
+		Name:     "http-2",
+		Port:     54323,
+		Protocol: "HTTP",
+	},
+}
+
 var services = []*model.Service{
 	{
 		Attributes: model.ServiceAttributes{
@@ -135,7 +153,7 @@ var services = []*model.Service{
 				InferencePoolExtensionRefFailureMode: "FailClose",
 			},
 		},
-		Ports:    ports,
+		Ports:    inferencePoolPorts,
 		Hostname: host.Name(fmt.Sprintf("%s.default.svc.domain.suffix", firstValue(InferencePoolServiceName("infpool-gen")))),
 	},
 	{
@@ -147,7 +165,7 @@ var services = []*model.Service{
 				InferencePoolExtensionRefFailureMode: "FailClose",
 			},
 		},
-		Ports:    ports,
+		Ports:    inferencePoolPorts,
 		Hostname: host.Name(fmt.Sprintf("%s.default.svc.domain.suffix", firstValue(InferencePoolServiceName("infpool-gen2")))),
 	},
 

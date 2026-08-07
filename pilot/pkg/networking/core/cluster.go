@@ -315,8 +315,13 @@ func (configgen *ConfigGeneratorImpl) buildOutboundClusters(cb *ClusterBuilder, 
 		if service.Resolution == model.Alias {
 			continue
 		}
-		for _, port := range service.Ports {
+		for i, port := range service.Ports {
 			if port.Protocol == protocol.UDP {
+				continue
+			}
+			// An InferencePool uses one cluster whose host set includes endpoints
+			// from every targetPort. Its route selects the first dummy service port.
+			if service.UseInferenceSemantics() && i > 0 {
 				continue
 			}
 			clusterKey := buildClusterKey(service, port, cb, proxy, efKeys)

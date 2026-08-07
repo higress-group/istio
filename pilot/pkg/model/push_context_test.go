@@ -1462,6 +1462,42 @@ func TestServiceIndex(t *testing.T) {
 	g.Expect(serviceNames(si.privateByNamespace["test1"])).To(Equal([]string{"svc-private"}))
 }
 
+func TestServiceEndpointsByPortInferencePool(t *testing.T) {
+	service := &Service{
+		Hostname: "pool.default.svc.cluster.local",
+		Ports: PortList{
+			{Name: "http-0", Port: 54321},
+			{Name: "http-1", Port: 54322},
+		},
+		Attributes: ServiceAttributes{
+			Namespace: "default",
+			Labels:    map[string]string{},
+		},
+	}
+	port0Endpoint := &IstioEndpoint{
+		Addresses:    []string{"10.0.0.1"},
+		EndpointPort: 8000,
+		Labels:       labels.Instance{"model": "a"},
+	}
+	port1Endpoint := &IstioEndpoint{
+		Addresses:    []string{"10.0.0.1"},
+		EndpointPort: 8001,
+		Labels:       labels.Instance{"model": "b"},
+	}
+
+	push := NewPushContext()
+	push.AddServiceInstances(service, map[int][]*IstioEndpoint{
+		54321: {port0Endpoint},
+		54322: {port1Endpoint},
+	})
+
+	assert.Equal(t, push.ServiceEndpointsByPort(service, 54321, nil), []*IstioEndpoint{port0Endpoint})
+
+	service.Attributes.Labels[constants.InternalServiceSemantics] = constants.ServiceSemanticsInferencePool
+	assert.Equal(t, push.ServiceEndpointsByPort(service, 54321, nil), []*IstioEndpoint{port0Endpoint, port1Endpoint})
+	assert.Equal(t, push.ServiceEndpointsByPort(service, 54321, labels.Instance{"model": "b"}), []*IstioEndpoint{port1Endpoint})
+}
+
 func TestIsServiceVisible(t *testing.T) {
 	targetNamespace := "foo"
 	cases := []struct {
