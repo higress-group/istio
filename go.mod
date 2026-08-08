@@ -4,9 +4,9 @@ go 1.24.4
 
 // Client-go does not handle different versions of mergo due to some breaking changes - use the matching version
 replace (
-	github.com/envoyproxy/go-control-plane => github.com/higress-group/go-control-plane v0.0.0-20260204094726-af656ebdd1c2
-	github.com/envoyproxy/go-control-plane/contrib => github.com/higress-group/go-control-plane/contrib v0.0.0-20260204094726-af656ebdd1c2
-	github.com/envoyproxy/go-control-plane/envoy => github.com/higress-group/go-control-plane/envoy v0.0.0-20260204094726-af656ebdd1c2
+	github.com/envoyproxy/go-control-plane => github.com/higress-group/go-control-plane v0.0.0-20260808035359-140755b06167
+	github.com/envoyproxy/go-control-plane/contrib => github.com/higress-group/go-control-plane/contrib v0.0.0-20260808035359-140755b06167
+	github.com/envoyproxy/go-control-plane/envoy => github.com/higress-group/go-control-plane/envoy v0.0.0-20260808035359-140755b06167
 	github.com/imdario/mergo => github.com/imdario/mergo v0.3.5
 	golang.org/x/exp => golang.org/x/exp v0.0.0-20230713183714-613f0c0eb8a1
 	google.golang.org/grpc => google.golang.org/grpc v1.64.0
