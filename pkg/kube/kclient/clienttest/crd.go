@@ -18,6 +18,7 @@ import (
 	"fmt"
 
 	v1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+	extfake "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset/fake"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -35,11 +36,43 @@ func MakeCRD(t test.Failer, c kube.Client, g schema.GroupVersionResource) {
 
 func MakeCRDWithAnnotations(t test.Failer, c kube.Client, g schema.GroupVersionResource, annotations map[string]string) {
 	t.Helper()
+	MakeCRDWithVersions(t, c, g, annotations, []v1.CustomResourceDefinitionVersion{{
+		Name:    g.Version,
+		Served:  true,
+		Storage: true,
+	}})
+}
+
+func MakeCRDWithVersions(
+	t test.Failer,
+	c kube.Client,
+	g schema.GroupVersionResource,
+	annotations map[string]string,
+	versions []v1.CustomResourceDefinitionVersion,
+) {
+	t.Helper()
 	crd := &v1.CustomResourceDefinition{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:        fmt.Sprintf("%s.%s", g.Resource, g.Group),
 			Annotations: annotations,
 		},
+		Spec: v1.CustomResourceDefinitionSpec{
+			Versions: versions,
+		},
+	}
+	fc, ok := c.Ext().(*extfake.Clientset)
+	if !ok {
+		return
+	}
+	tracker := fc.Tracker()
+	if err := tracker.Create(gvr.CustomResourceDefinition, crd, ""); err != nil {
+		if kerrors.IsAlreadyExists(err) {
+			if err = tracker.Update(gvr.CustomResourceDefinition, crd, ""); err != nil {
+				t.Fatal(err)
+			}
+		} else {
+			t.Fatal(err)
+		}
 	}
 	// Metadata client fake is not kept in sync, so if using a fake client update that as well
 	fmc, ok := c.Metadata().(*metadatafake.FakeMetadataClient)

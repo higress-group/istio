@@ -731,8 +731,7 @@ func (s *Server) handleAppProbe(w http.ResponseWriter, req *http.Request) {
 	prober, exists := s.appKubeProbers[path]
 	if !exists {
 		log.Errorf("Prober does not exists url %v", path)
-		w.WriteHeader(http.StatusBadRequest)
-		_, _ = w.Write([]byte(fmt.Sprintf("app prober config does not exists for %v", path)))
+		http.Error(w, "app prober config does not exist", http.StatusBadRequest)
 		return
 	}
 

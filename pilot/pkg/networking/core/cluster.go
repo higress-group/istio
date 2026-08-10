@@ -594,7 +594,7 @@ func buildInboundClustersFromSidecar(cb *ClusterBuilder, proxy *model.Proxy,
 		// * 0.0.0.0: send to INSTANCE_IP
 		// * unix:///...: send to configured unix domain socket
 		endpointAddress := ""
-		port := 0
+		var port uint32
 		if strings.HasPrefix(ingressListener.DefaultEndpoint, model.UnixAddressPrefix) {
 			// this is a UDS endpoint. assign it as is
 			endpointAddress = ingressListener.DefaultEndpoint
@@ -604,10 +604,11 @@ func buildInboundClustersFromSidecar(cb *ClusterBuilder, proxy *model.Proxy,
 			if hostPort == "" || hostErr != nil {
 				continue
 			}
-			var err error
-			if port, err = strconv.Atoi(hostPort); err != nil {
+			parsedPort, err := strconv.ParseUint(hostPort, 10, 16)
+			if err != nil {
 				continue
 			}
+			port = uint32(parsedPort)
 			if hostIP == model.PodIPAddressPrefix {
 				for _, proxyIPAddr := range cb.proxyIPAddresses {
 					if netutil.IsIPv4Address(proxyIPAddr) {
@@ -670,7 +671,7 @@ func buildInboundClustersFromSidecar(cb *ClusterBuilder, proxy *model.Proxy,
 			Service: svc,
 			Port: model.ServiceInstancePort{
 				ServicePort: listenPort,
-				TargetPort:  uint32(port),
+				TargetPort:  port,
 			},
 		}
 		localCluster := cb.buildInboundCluster(int(ingressListener.Port.Number), endpointAddress, proxy, []model.ServiceTarget{endpoint})

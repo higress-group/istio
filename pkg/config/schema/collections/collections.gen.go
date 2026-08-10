@@ -44,9 +44,9 @@ var (
 		Group:      "security.istio.io",
 		Kind:       "AuthorizationPolicy",
 		Plural:     "authorizationpolicies",
-		Version:    "v1beta1",
+		Version:    "v1",
 		VersionAliases: []string{
-			"v1",
+			"v1beta1",
 		},
 		Proto: "istio.security.v1beta1.AuthorizationPolicy", StatusProto: "istio.meta.v1alpha1.IstioStatus",
 		ReflectType: reflect.TypeOf(&istioioapisecurityv1beta1.AuthorizationPolicy{}).Elem(), StatusType: reflect.TypeOf(&istioioapimetav1alpha1.IstioStatus{}).Elem(),
@@ -167,9 +167,9 @@ var (
 		Group:      "networking.istio.io",
 		Kind:       "DestinationRule",
 		Plural:     "destinationrules",
-		Version:    "v1alpha3",
+		Version:    "v1",
 		VersionAliases: []string{
-			"v1",
+			"v1alpha3",
 			"v1beta1",
 		},
 		Proto: "istio.networking.v1alpha3.DestinationRule", StatusProto: "istio.meta.v1alpha1.IstioStatus",
@@ -249,9 +249,9 @@ var (
 		Group:      "networking.istio.io",
 		Kind:       "Gateway",
 		Plural:     "gateways",
-		Version:    "v1alpha3",
+		Version:    "v1",
 		VersionAliases: []string{
-			"v1",
+			"v1alpha3",
 			"v1beta1",
 		},
 		Proto: "istio.networking.v1alpha3.Gateway", StatusProto: "istio.meta.v1alpha1.IstioStatus",
@@ -268,14 +268,14 @@ var (
 		Group:      "gateway.networking.k8s.io",
 		Kind:       "GatewayClass",
 		Plural:     "gatewayclasses",
-		Version:    "v1beta1",
+		Version:    "v1",
 		VersionAliases: []string{
 			"v1alpha2",
-			"v1",
+			"v1beta1",
 		},
 		Proto: "k8s.io.gateway_api.api.v1alpha1.GatewayClassSpec", StatusProto: "k8s.io.gateway_api.api.v1alpha1.GatewayClassStatus",
-		ReflectType: reflect.TypeOf(&sigsk8siogatewayapiapisv1beta1.GatewayClassSpec{}).Elem(), StatusType: reflect.TypeOf(&sigsk8siogatewayapiapisv1beta1.GatewayClassStatus{}).Elem(),
-		ProtoPackage: "sigs.k8s.io/gateway-api/apis/v1beta1", StatusPackage: "sigs.k8s.io/gateway-api/apis/v1beta1",
+		ReflectType: reflect.TypeOf(&sigsk8siogatewayapiapisv1.GatewayClassSpec{}).Elem(), StatusType: reflect.TypeOf(&sigsk8siogatewayapiapisv1.GatewayClassStatus{}).Elem(),
+		ProtoPackage: "sigs.k8s.io/gateway-api/apis/v1", StatusPackage: "sigs.k8s.io/gateway-api/apis/v1",
 		ClusterScoped: true,
 		Synthetic:     false,
 		Builtin:       false,
@@ -287,14 +287,14 @@ var (
 		Group:      "gateway.networking.k8s.io",
 		Kind:       "HTTPRoute",
 		Plural:     "httproutes",
-		Version:    "v1beta1",
+		Version:    "v1",
 		VersionAliases: []string{
 			"v1alpha2",
-			"v1",
+			"v1beta1",
 		},
 		Proto: "k8s.io.gateway_api.api.v1alpha1.HTTPRouteSpec", StatusProto: "k8s.io.gateway_api.api.v1alpha1.HTTPRouteStatus",
-		ReflectType: reflect.TypeOf(&sigsk8siogatewayapiapisv1beta1.HTTPRouteSpec{}).Elem(), StatusType: reflect.TypeOf(&sigsk8siogatewayapiapisv1beta1.HTTPRouteStatus{}).Elem(),
-		ProtoPackage: "sigs.k8s.io/gateway-api/apis/v1beta1", StatusPackage: "sigs.k8s.io/gateway-api/apis/v1beta1",
+		ReflectType: reflect.TypeOf(&sigsk8siogatewayapiapisv1.HTTPRouteSpec{}).Elem(), StatusType: reflect.TypeOf(&sigsk8siogatewayapiapisv1.HTTPRouteStatus{}).Elem(),
+		ProtoPackage: "sigs.k8s.io/gateway-api/apis/v1", StatusPackage: "sigs.k8s.io/gateway-api/apis/v1",
 		ClusterScoped: false,
 		Synthetic:     false,
 		Builtin:       false,
@@ -322,7 +322,7 @@ var (
 		Kind:       "InferencePool",
 		Plural:     "inferencepools",
 		Version:    "v1",
-		Proto:      "k8s.io.gateway-api-inference-extension.api.v1.InferencePoolSpec", StatusProto: "k8s.io.gateway-api-inference-extension.api.v1.InferencePoolStatus",
+		Proto:      "x-k8s.io.gateway-api-inference-extension.api.v1.InferencePoolSpec", StatusProto: "x-k8s.io.gateway-api-inference-extension.api.v1.InferencePoolStatus",
 		ReflectType: reflect.TypeOf(&sigsk8siogatewayapiinferenceextensionapiv1.InferencePoolSpec{}).Elem(), StatusType: reflect.TypeOf(&sigsk8siogatewayapiinferenceextensionapiv1.InferencePoolStatus{}).Elem(),
 		ProtoPackage: "sigs.k8s.io/gateway-api-inference-extension/api/v1", StatusPackage: "sigs.k8s.io/gateway-api-inference-extension/api/v1",
 		ClusterScoped: false,
@@ -366,14 +366,14 @@ var (
 		Group:      "gateway.networking.k8s.io",
 		Kind:       "Gateway",
 		Plural:     "gateways",
-		Version:    "v1beta1",
+		Version:    "v1",
 		VersionAliases: []string{
 			"v1alpha2",
-			"v1",
+			"v1beta1",
 		},
 		Proto: "k8s.io.gateway_api.api.v1alpha1.GatewaySpec", StatusProto: "k8s.io.gateway_api.api.v1alpha1.GatewayStatus",
-		ReflectType: reflect.TypeOf(&sigsk8siogatewayapiapisv1beta1.GatewaySpec{}).Elem(), StatusType: reflect.TypeOf(&sigsk8siogatewayapiapisv1beta1.GatewayStatus{}).Elem(),
-		ProtoPackage: "sigs.k8s.io/gateway-api/apis/v1beta1", StatusPackage: "sigs.k8s.io/gateway-api/apis/v1beta1",
+		ReflectType: reflect.TypeOf(&sigsk8siogatewayapiapisv1.GatewaySpec{}).Elem(), StatusType: reflect.TypeOf(&sigsk8siogatewayapiapisv1.GatewayStatus{}).Elem(),
+		ProtoPackage: "sigs.k8s.io/gateway-api/apis/v1", StatusPackage: "sigs.k8s.io/gateway-api/apis/v1",
 		ClusterScoped: false,
 		Synthetic:     false,
 		Builtin:       false,
@@ -392,6 +392,21 @@ var (
 		ClusterScoped: false,
 		Synthetic:     false,
 		Builtin:       true,
+		ValidateProto: validation.EmptyValidate,
+	}.MustBuild()
+
+	ListenerSet = resource.Builder{
+		Identifier: "ListenerSet",
+		Group:      "gateway.networking.k8s.io",
+		Kind:       "ListenerSet",
+		Plural:     "listenersets",
+		Version:    "v1",
+		Proto:      "ListenerSetSpec", StatusProto: "ListenerSetStatus",
+		ReflectType: reflect.TypeOf(&sigsk8siogatewayapiapisv1.ListenerSetSpec{}).Elem(), StatusType: reflect.TypeOf(&sigsk8siogatewayapiapisv1.ListenerSetStatus{}).Elem(),
+		ProtoPackage: "sigs.k8s.io/gateway-api/apis/v1", StatusPackage: "sigs.k8s.io/gateway-api/apis/v1",
+		ClusterScoped: false,
+		Synthetic:     false,
+		Builtin:       false,
 		ValidateProto: validation.EmptyValidate,
 	}.MustBuild()
 
@@ -475,9 +490,9 @@ var (
 		Group:      "security.istio.io",
 		Kind:       "PeerAuthentication",
 		Plural:     "peerauthentications",
-		Version:    "v1beta1",
+		Version:    "v1",
 		VersionAliases: []string{
-			"v1",
+			"v1beta1",
 		},
 		Proto: "istio.security.v1beta1.PeerAuthentication", StatusProto: "istio.meta.v1alpha1.IstioStatus",
 		ReflectType: reflect.TypeOf(&istioioapisecurityv1beta1.PeerAuthentication{}).Elem(), StatusType: reflect.TypeOf(&istioioapimetav1alpha1.IstioStatus{}).Elem(),
@@ -556,9 +571,9 @@ var (
 		Group:      "security.istio.io",
 		Kind:       "RequestAuthentication",
 		Plural:     "requestauthentications",
-		Version:    "v1beta1",
+		Version:    "v1",
 		VersionAliases: []string{
-			"v1",
+			"v1beta1",
 		},
 		Proto: "istio.security.v1beta1.RequestAuthentication", StatusProto: "istio.meta.v1alpha1.IstioStatus",
 		ReflectType: reflect.TypeOf(&istioioapisecurityv1beta1.RequestAuthentication{}).Elem(), StatusType: reflect.TypeOf(&istioioapimetav1alpha1.IstioStatus{}).Elem(),
@@ -619,9 +634,9 @@ var (
 		Group:      "networking.istio.io",
 		Kind:       "ServiceEntry",
 		Plural:     "serviceentries",
-		Version:    "v1alpha3",
+		Version:    "v1",
 		VersionAliases: []string{
-			"v1",
+			"v1alpha3",
 			"v1beta1",
 		},
 		Proto: "istio.networking.v1alpha3.ServiceEntry", StatusProto: "istio.networking.v1alpha3.ServiceEntryStatus",
@@ -638,9 +653,9 @@ var (
 		Group:      "networking.istio.io",
 		Kind:       "Sidecar",
 		Plural:     "sidecars",
-		Version:    "v1alpha3",
+		Version:    "v1",
 		VersionAliases: []string{
-			"v1",
+			"v1alpha3",
 			"v1beta1",
 		},
 		Proto: "istio.networking.v1alpha3.Sidecar", StatusProto: "istio.meta.v1alpha1.IstioStatus",
@@ -672,10 +687,13 @@ var (
 		Group:      "gateway.networking.k8s.io",
 		Kind:       "TCPRoute",
 		Plural:     "tcproutes",
-		Version:    "v1alpha2",
-		Proto:      "k8s.io.gateway_api.api.v1alpha1.TCPRouteSpec", StatusProto: "k8s.io.gateway_api.api.v1alpha1.TCPRouteStatus",
-		ReflectType: reflect.TypeOf(&sigsk8siogatewayapiapisv1alpha2.TCPRouteSpec{}).Elem(), StatusType: reflect.TypeOf(&sigsk8siogatewayapiapisv1alpha2.TCPRouteStatus{}).Elem(),
-		ProtoPackage: "sigs.k8s.io/gateway-api/apis/v1alpha2", StatusPackage: "sigs.k8s.io/gateway-api/apis/v1alpha2",
+		Version:    "v1",
+		VersionAliases: []string{
+			"v1alpha2",
+		},
+		Proto: "k8s.io.gateway_api.api.v1.TCPRouteSpec", StatusProto: "k8s.io.gateway_api.api.v1.TCPRouteStatus",
+		ReflectType: reflect.TypeOf(&sigsk8siogatewayapiapisv1.TCPRouteSpec{}).Elem(), StatusType: reflect.TypeOf(&sigsk8siogatewayapiapisv1.TCPRouteStatus{}).Elem(),
+		ProtoPackage: "sigs.k8s.io/gateway-api/apis/v1", StatusPackage: "sigs.k8s.io/gateway-api/apis/v1",
 		ClusterScoped: false,
 		Synthetic:     false,
 		Builtin:       false,
@@ -687,10 +705,13 @@ var (
 		Group:      "gateway.networking.k8s.io",
 		Kind:       "TLSRoute",
 		Plural:     "tlsroutes",
-		Version:    "v1alpha2",
-		Proto:      "k8s.io.gateway_api.api.v1alpha1.TLSRouteSpec", StatusProto: "k8s.io.gateway_api.api.v1alpha1.TLSRouteStatus",
-		ReflectType: reflect.TypeOf(&sigsk8siogatewayapiapisv1alpha2.TLSRouteSpec{}).Elem(), StatusType: reflect.TypeOf(&sigsk8siogatewayapiapisv1alpha2.TLSRouteStatus{}).Elem(),
-		ProtoPackage: "sigs.k8s.io/gateway-api/apis/v1alpha2", StatusPackage: "sigs.k8s.io/gateway-api/apis/v1alpha2",
+		Version:    "v1",
+		VersionAliases: []string{
+			"v1alpha2",
+		},
+		Proto: "k8s.io.gateway_api.api.v1.TLSRouteSpec", StatusProto: "k8s.io.gateway_api.api.v1.TLSRouteStatus",
+		ReflectType: reflect.TypeOf(&sigsk8siogatewayapiapisv1.TLSRouteSpec{}).Elem(), StatusType: reflect.TypeOf(&sigsk8siogatewayapiapisv1.TLSRouteStatus{}).Elem(),
+		ProtoPackage: "sigs.k8s.io/gateway-api/apis/v1", StatusPackage: "sigs.k8s.io/gateway-api/apis/v1",
 		ClusterScoped: false,
 		Synthetic:     false,
 		Builtin:       false,
@@ -702,9 +723,9 @@ var (
 		Group:      "telemetry.istio.io",
 		Kind:       "Telemetry",
 		Plural:     "telemetries",
-		Version:    "v1alpha1",
+		Version:    "v1",
 		VersionAliases: []string{
-			"v1",
+			"v1alpha1",
 		},
 		Proto: "istio.telemetry.v1alpha1.Telemetry", StatusProto: "istio.meta.v1alpha1.IstioStatus",
 		ReflectType: reflect.TypeOf(&istioioapitelemetryv1alpha1.Telemetry{}).Elem(), StatusType: reflect.TypeOf(&istioioapimetav1alpha1.IstioStatus{}).Elem(),
@@ -750,9 +771,9 @@ var (
 		Group:      "networking.istio.io",
 		Kind:       "VirtualService",
 		Plural:     "virtualservices",
-		Version:    "v1alpha3",
+		Version:    "v1",
 		VersionAliases: []string{
-			"v1",
+			"v1alpha3",
 			"v1beta1",
 		},
 		Proto: "istio.networking.v1alpha3.VirtualService", StatusProto: "istio.meta.v1alpha1.IstioStatus",
@@ -784,9 +805,9 @@ var (
 		Group:      "networking.istio.io",
 		Kind:       "WorkloadEntry",
 		Plural:     "workloadentries",
-		Version:    "v1alpha3",
+		Version:    "v1",
 		VersionAliases: []string{
-			"v1",
+			"v1alpha3",
 			"v1beta1",
 		},
 		Proto: "istio.networking.v1alpha3.WorkloadEntry", StatusProto: "istio.meta.v1alpha1.IstioStatus",
@@ -803,9 +824,9 @@ var (
 		Group:      "networking.istio.io",
 		Kind:       "WorkloadGroup",
 		Plural:     "workloadgroups",
-		Version:    "v1alpha3",
+		Version:    "v1",
 		VersionAliases: []string{
-			"v1",
+			"v1alpha3",
 			"v1beta1",
 		},
 		Proto: "istio.networking.v1alpha3.WorkloadGroup", StatusProto: "istio.meta.v1alpha1.IstioStatus",
@@ -825,21 +846,6 @@ var (
 		Version:    "v1alpha1",
 		Proto:      "k8s.io.gateway_api.apix.v1alpha1.BackendTrafficPolicySpec", StatusProto: "PolicyStatus",
 		ReflectType: reflect.TypeOf(&sigsk8siogatewayapiapisxv1alpha1.BackendTrafficPolicySpec{}).Elem(), StatusType: reflect.TypeOf(&sigsk8siogatewayapiapisxv1alpha1.PolicyStatus{}).Elem(),
-		ProtoPackage: "sigs.k8s.io/gateway-api/apisx/v1alpha1", StatusPackage: "sigs.k8s.io/gateway-api/apisx/v1alpha1",
-		ClusterScoped: false,
-		Synthetic:     false,
-		Builtin:       false,
-		ValidateProto: validation.EmptyValidate,
-	}.MustBuild()
-
-	XListenerSet = resource.Builder{
-		Identifier: "XListenerSet",
-		Group:      "gateway.networking.x-k8s.io",
-		Kind:       "XListenerSet",
-		Plural:     "xlistenersets",
-		Version:    "v1alpha1",
-		Proto:      "ListenerSetSpec", StatusProto: "ListenerSetStatus",
-		ReflectType: reflect.TypeOf(&sigsk8siogatewayapiapisxv1alpha1.ListenerSetSpec{}).Elem(), StatusType: reflect.TypeOf(&sigsk8siogatewayapiapisxv1alpha1.ListenerSetStatus{}).Elem(),
 		ProtoPackage: "sigs.k8s.io/gateway-api/apisx/v1alpha1", StatusPackage: "sigs.k8s.io/gateway-api/apisx/v1alpha1",
 		ClusterScoped: false,
 		Synthetic:     false,
@@ -871,6 +877,7 @@ var (
 		MustAdd(IngressClass).
 		MustAdd(KubernetesGateway).
 		MustAdd(Lease).
+		MustAdd(ListenerSet).
 		MustAdd(MeshConfig).
 		MustAdd(MeshNetworks).
 		MustAdd(MutatingWebhookConfiguration).
@@ -898,7 +905,6 @@ var (
 		MustAdd(WorkloadEntry).
 		MustAdd(WorkloadGroup).
 		MustAdd(XBackendTrafficPolicy).
-		MustAdd(XListenerSet).
 		Build()
 
 	// Kube contains only kubernetes collections.
@@ -921,6 +927,7 @@ var (
 		MustAdd(IngressClass).
 		MustAdd(KubernetesGateway).
 		MustAdd(Lease).
+		MustAdd(ListenerSet).
 		MustAdd(MutatingWebhookConfiguration).
 		MustAdd(Namespace).
 		MustAdd(Node).
@@ -936,7 +943,6 @@ var (
 		MustAdd(UDPRoute).
 		MustAdd(ValidatingWebhookConfiguration).
 		MustAdd(XBackendTrafficPolicy).
-		MustAdd(XListenerSet).
 		Build()
 
 	// Pilot contains only collections used by Pilot.
@@ -968,6 +974,7 @@ var (
 			MustAdd(GatewayClass).
 			MustAdd(HTTPRoute).
 			MustAdd(KubernetesGateway).
+			MustAdd(ListenerSet).
 			MustAdd(PeerAuthentication).
 			MustAdd(ProxyConfig).
 			MustAdd(ReferenceGrant).
@@ -983,12 +990,12 @@ var (
 			MustAdd(WorkloadEntry).
 			MustAdd(WorkloadGroup).
 			MustAdd(XBackendTrafficPolicy).
-			MustAdd(XListenerSet).
 			Build()
 
 	// PilotStableGatewayAPI contains only collections used by Pilot, including beta+ Gateway API.
 	pilotStableGatewayAPI = collection.NewSchemasBuilder().
 				MustAdd(AuthorizationPolicy).
+				MustAdd(BackendTLSPolicy).
 				MustAdd(DestinationRule).
 				MustAdd(EnvoyFilter).
 				MustAdd(GRPCRoute).
@@ -996,12 +1003,15 @@ var (
 				MustAdd(GatewayClass).
 				MustAdd(HTTPRoute).
 				MustAdd(KubernetesGateway).
+				MustAdd(ListenerSet).
 				MustAdd(PeerAuthentication).
 				MustAdd(ProxyConfig).
 				MustAdd(ReferenceGrant).
 				MustAdd(RequestAuthentication).
 				MustAdd(ServiceEntry).
 				MustAdd(Sidecar).
+				MustAdd(TCPRoute).
+				MustAdd(TLSRoute).
 				MustAdd(Telemetry).
 				MustAdd(VirtualService).
 				MustAdd(WasmPlugin).

@@ -509,11 +509,12 @@ func (configgen *ConfigGeneratorImpl) buildHostRDSConfig(
 	ph := GetProxyHeaders(node, push, istionetworking.ListenerClassGateway)
 	merged := node.MergedGateway
 	log.Debugf("buildGatewayRoutes: gateways after merging: %v", merged)
-	rdsPort, err := strconv.Atoi(hostRDSPort)
+	parsedRDSPort, err := strconv.ParseUint(hostRDSPort, 10, 16)
 	if err != nil {
 		log.Errorf("Invalid port %s of route %s when using Higress hostRDS", hostRDSPort, routeName)
 		return nil, false
 	}
+	rdsPort := int(parsedRDSPort)
 
 	hostVs := push.VirtualServicesForHost(node, hostRDSHost)
 
@@ -589,6 +590,10 @@ func (configgen *ConfigGeneratorImpl) buildHostRDSConfig(
 		}
 	}
 
+	gatewayNames := sets.New[string]()
+	for _, gatewayName := range merged.GatewayNameForServer {
+		gatewayNames.Insert(gatewayName)
+	}
 	routeCache := &istio_route.Cache{
 		RouteName:    routeName,
 		ProxyVersion: node.Metadata.IstioVersion,
@@ -597,6 +602,7 @@ func (configgen *ConfigGeneratorImpl) buildHostRDSConfig(
 		VirtualServices:         vsDependent,
 		DelegateVirtualServices: push.DelegateVirtualServices(vsDependent),
 		HTTPRoutes:              httpRoutes,
+		GatewayNames:            sets.SortedList(gatewayNames),
 		EnvoyFilterKeys:         efKeys,
 		DestinationRules:        dependentDestinationRules,
 	}

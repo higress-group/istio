@@ -648,3 +648,18 @@ func TestTranslateFault(t *testing.T) {
 		})
 	}
 }
+
+func TestApplyRedirectRejectsOutOfRangeDerivedPort(t *testing.T) {
+	for _, port := range []int{-1, 65536} {
+		out := &route.Route{}
+		ApplyRedirect(out, &networking.HTTPRedirect{
+			RedirectPort: &networking.HTTPRedirect_DerivePort{
+				DerivePort: networking.HTTPRedirect_FROM_REQUEST_PORT,
+			},
+		}, port, false, false)
+
+		if got := out.GetRedirect().GetPortRedirect(); got != 0 {
+			t.Fatalf("port %d produced an invalid redirect port %d", port, got)
+		}
+	}
+}

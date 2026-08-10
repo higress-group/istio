@@ -54,7 +54,8 @@ type Cache struct {
 	Services        []*model.Service
 	VirtualServices []config.Config
 	// Added by ingress
-	HTTPRoutes []config.Config
+	HTTPRoutes   []config.Config
+	GatewayNames []string
 	// End added by ingress
 	DelegateVirtualServices []model.ConfigHash
 	DestinationRules        []*model.ConsolidatedDestRule
@@ -89,7 +90,7 @@ func (r *Cache) Cacheable() bool {
 }
 
 func (r *Cache) DependentConfigs() []model.ConfigHash {
-	size := len(r.Services) + len(r.VirtualServices) + len(r.DelegateVirtualServices) + len(r.EnvoyFilterKeys)
+	size := len(r.Services) + len(r.VirtualServices) + len(r.DelegateVirtualServices) + len(r.EnvoyFilterKeys) + len(r.GatewayNames)
 	for _, mergedDR := range r.DestinationRules {
 		size += len(mergedDR.GetFrom())
 	}
@@ -115,6 +116,12 @@ func (r *Cache) DependentConfigs() []model.ConfigHash {
 	// Added by ingress
 	for _, route := range r.HTTPRoutes {
 		configs = append(configs, model.ConfigKey{Kind: kind.HTTPRoute, Name: route.Name, Namespace: route.Namespace}.HashCode())
+	}
+	for _, gatewayName := range r.GatewayNames {
+		namespace, name, found := strings.Cut(gatewayName, "/")
+		if found {
+			configs = append(configs, model.ConfigKey{Kind: kind.Gateway, Name: name, Namespace: namespace}.HashCode())
+		}
 	}
 
 	// End added by ingress
@@ -181,6 +188,11 @@ func (r *Cache) Key() any {
 		h.Write([]byte(route.Name))
 		h.Write(Slash)
 		h.Write([]byte(route.Namespace))
+		h.Write(Separator)
+	}
+	h.Write(Separator)
+	for _, gatewayName := range r.GatewayNames {
+		h.WriteString(gatewayName)
 		h.Write(Separator)
 	}
 	h.Write(Separator)

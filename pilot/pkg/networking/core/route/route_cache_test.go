@@ -78,3 +78,39 @@ func TestClearRDSCacheOnDelegateUpdate(t *testing.T) {
 		t.Fatal("rds cache was cleared by irrelevant delegate virtual service update")
 	}
 }
+
+func TestHigressHostRDSCacheIsolatedByGateway(t *testing.T) {
+	virtualService := config.Config{
+		Meta: config.Meta{Name: "wildcard", Namespace: "default"},
+		Spec: &networking.VirtualService{
+			Hosts: []string{"*"},
+		},
+	}
+	first := Cache{
+		RouteName:       "higress-rds-80.*",
+		ListenerPort:    80,
+		VirtualServices: []config.Config{virtualService},
+		GatewayNames:    []string{"default/first-gateway"},
+	}
+	second := first
+	second.GatewayNames = []string{"default/second-gateway"}
+
+	if first.Key() == second.Key() {
+		t.Fatal("host RDS cache keys must differ for different Gateways")
+	}
+
+	xdsCache := model.NewXdsCache()
+	resource := &discovery.Resource{Name: "first"}
+	xdsCache.Add(&first, &model.PushRequest{Start: time.Now()}, resource)
+	if got := xdsCache.Get(&first); got == nil {
+		t.Fatal("host RDS cache entry was not added")
+	}
+	xdsCache.Clear(sets.New(model.ConfigKey{
+		Kind:      kind.Gateway,
+		Name:      "first-gateway",
+		Namespace: "default",
+	}))
+	if got := xdsCache.Get(&first); got != nil {
+		t.Fatal("host RDS cache was not cleared when its Gateway changed")
+	}
+}

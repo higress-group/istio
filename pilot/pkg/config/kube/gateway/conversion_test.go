@@ -406,6 +406,41 @@ var services = []*model.Service{
 	},
 }
 
+func TestBuildTCPDestinationRejectsInvalidBackendKind(t *testing.T) {
+	unsupportedKind := k8s.Kind("UnsupportedKind")
+	port := k8s.PortNumber(443)
+	destinations, backendErr, err := buildTCPDestination(
+		RouteContext{},
+		[]k8s.BackendRef{{
+			BackendObjectReference: k8s.BackendObjectReference{
+				Name: "backend",
+				Kind: &unsupportedKind,
+				Port: &port,
+			},
+		}},
+		"default",
+		false,
+		gvk.TLSRoute,
+	)
+
+	if err != nil {
+		t.Fatalf("buildTCPDestination() returned fatal error: %v", err)
+	}
+	if backendErr == nil || backendErr.Reason != InvalidDestinationKind {
+		t.Fatalf("buildTCPDestination() backend error = %v, want reason %v", backendErr, InvalidDestinationKind)
+	}
+	if len(destinations) != 1 {
+		t.Fatalf("buildTCPDestination() returned %d destinations, want 1", len(destinations))
+	}
+	got := destinations[0]
+	if got.Destination == nil || got.Destination.Host == "" {
+		t.Fatalf("buildTCPDestination() returned an empty destination: %v", got)
+	}
+	if got.Destination.Host != "internal.cluster.local" || got.Destination.Subset != "invalid-backend" {
+		t.Fatalf("buildTCPDestination() destination = %v, want invalid-backend rejection destination", got.Destination)
+	}
+}
+
 var svcPorts = []corev1.ServicePort{
 	{
 		Name:     "http",
@@ -731,6 +766,12 @@ func TestConvertResources(t *testing.T) {
 				"default/^valid-invalid-parent-ref-",
 			),
 		},
+		{
+			name: "gateway-invalid-parameters-ref",
+			validationIgnorer: crdvalidation.NewValidationIgnorer(
+				"istio-system/^valid-parameters$",
+			),
+		},
 	}
 	test.SetForTest(t, &features.EnableGatewayAPIGatewayClassController, false)
 	test.SetForTest(t, &features.EnableGatewayAPIInferenceExtension, true)
@@ -803,7 +844,7 @@ func setupClientCRDs(t *testing.T, kc kube.CLIClient) {
 	for _, crd := range []schema.GroupVersionResource{
 		gvr.KubernetesGateway,
 		gvr.ReferenceGrant,
-		gvr.XListenerSet,
+		gvr.ListenerSet,
 		gvr.GatewayClass,
 		gvr.HTTPRoute,
 		gvr.GRPCRoute,

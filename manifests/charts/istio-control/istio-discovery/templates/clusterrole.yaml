@@ -194,6 +194,9 @@ metadata:
     app.kubernetes.io/name: "istiod"
     {{- include "istio.labels" . | nindent 4 }}
 rules:
+  - apiGroups: ["gateway.networking.k8s.io"]
+    verbs: [ "get", "update", "patch" ]
+    resources: [ "gateways" ]
   - apiGroups: ["apps"]
     verbs: [ "get", "watch", "list", "update", "patch", "create", "delete" ]
     resources: [ "deployments" ]

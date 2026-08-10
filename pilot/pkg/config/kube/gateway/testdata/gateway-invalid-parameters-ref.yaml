@@ -1,0 +1,89 @@
+apiVersion: gateway.networking.k8s.io/v1
+kind: GatewayClass
+metadata:
+  name: istio
+spec:
+  controllerName: istio.io/gateway-controller
+---
+# An unsupported parametersRef group/kind must set Accepted=False with reason
+# InvalidParameters (Gateway API conformance test GatewayInvalidParametersRef).
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: invalid-parameters-type
+  namespace: istio-system
+spec:
+  addresses:
+  - value: istio-ingressgateway
+    type: Hostname
+  gatewayClassName: istio
+  infrastructure:
+    parametersRef:
+      group: invalid.io
+      kind: InvalidParameters
+      name: invalid
+  listeners:
+  - name: default
+    port: 80
+    protocol: HTTP
+    allowedRoutes:
+      namespaces:
+        from: All
+---
+# A missing ConfigMap is also an invalid parametersRef.
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: missing-parameters-configmap
+  namespace: istio-system
+spec:
+  addresses:
+  - value: istio-ingressgateway
+    type: Hostname
+  gatewayClassName: istio
+  infrastructure:
+    parametersRef:
+      group: ""
+      kind: ConfigMap
+      name: does-not-exist
+  listeners:
+  - name: default
+    port: 80
+    protocol: HTTP
+    allowedRoutes:
+      namespaces:
+        from: All
+---
+# An existing ConfigMap remains valid.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: valid-parameters
+  namespace: istio-system
+data:
+  deployment: |
+    spec:
+      replicas: 2
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: valid-parameters-configmap
+  namespace: istio-system
+spec:
+  addresses:
+  - value: istio-ingressgateway
+    type: Hostname
+  gatewayClassName: istio
+  infrastructure:
+    parametersRef:
+      group: ""
+      kind: ConfigMap
+      name: valid-parameters
+  listeners:
+  - name: default
+    port: 80
+    protocol: HTTP
+    allowedRoutes:
+      namespaces:
+        from: All

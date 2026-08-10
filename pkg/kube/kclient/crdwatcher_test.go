@@ -18,6 +18,7 @@ import (
 	"testing"
 
 	"go.uber.org/atomic"
+	apixv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"sigs.k8s.io/gateway-api/pkg/consts"
 
 	"istio.io/istio/pkg/config/schema/gvr"
@@ -110,6 +111,34 @@ func TestCRDWatcherMinimumVersion(t *testing.T) {
 	// Upgrade it to v1.1, which is allowed
 	clienttest.MakeCRDWithAnnotations(t, c, gvr.GRPCRoute, map[string]string{
 		consts.BundleVersionAnnotation: "v1.1.0",
+	})
+	assert.EventuallyEqual(t, calls.Load, 1)
+}
+
+func TestCRDWatcherServedVersion(t *testing.T) {
+	stop := test.NewStop(t)
+	c := kube.NewFakeClient()
+
+	clienttest.MakeCRDWithVersions(t, c, gvr.TCPRoute, nil, []apixv1.CustomResourceDefinitionVersion{
+		{Name: gvr.TCPRoute_v1alpha2.Version, Served: true, Storage: true},
+		{Name: gvr.TCPRoute.Version, Served: false},
+	})
+	calls := atomic.NewInt32(0)
+	ctl := c.CrdWatcher()
+	assert.Equal(t, ctl.KnownOrCallback(gvr.TCPRoute, func(s <-chan struct{}) {
+		assert.Equal(t, s, stop)
+		calls.Inc()
+	}), false)
+
+	c.RunAndWait(stop)
+	assert.Equal(t, calls.Load(), 0)
+	assert.Equal(t, ctl.KnownOrCallback(gvr.TCPRoute_v1alpha2, func(<-chan struct{}) {
+		t.Fatal("callback should not be called")
+	}), true)
+
+	clienttest.MakeCRDWithVersions(t, c, gvr.TCPRoute, nil, []apixv1.CustomResourceDefinitionVersion{
+		{Name: gvr.TCPRoute_v1alpha2.Version, Served: true},
+		{Name: gvr.TCPRoute.Version, Served: true, Storage: true},
 	})
 	assert.EventuallyEqual(t, calls.Load, 1)
 }

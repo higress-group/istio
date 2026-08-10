@@ -890,17 +890,7 @@ func (ps *PushContext) GatewayServices(proxy *Proxy, patches *MergedEnvoyFilterW
 	// system during initial installation.
 	if proxy.MergedGateway != nil {
 		for _, gw := range proxy.MergedGateway.GatewayNameForServer {
-			for _, vsConfig := range ps.VirtualServicesForGateway(proxy.ConfigNamespace, gw) {
-				vs, ok := vsConfig.Spec.(*networking.VirtualService)
-				if !ok { // should never happen
-					log.Errorf("Failed in getting a virtual service: %v", vsConfig.Labels)
-					return svcs
-				}
-
-				for host := range virtualServiceDestinations(vs) {
-					hostsFromGateways.Insert(host)
-				}
-			}
+			hostsFromGateways.Merge(ps.virtualServiceIndex.destinationsByGateway[gw])
 		}
 	}
 	log.Debugf("GatewayServices: gateway %v is exposing these hosts:%v", proxy.ID, hostsFromGateways)
@@ -2549,6 +2539,18 @@ func (ps *PushContext) mergeGateways(proxy *Proxy) *MergedGateway {
 
 	for _, cfg := range configs {
 		gw := cfg.Spec.(*networking.Gateway)
+		// A generated Gateway may carry both a workload selector and the internal
+		// service annotation. The selector is the authoritative workload boundary;
+		// service targets are only used for port translation after it matches.
+		// Some gateway registries expose all services in the namespace as targets,
+		// so evaluating the annotation first can merge another managed Gateway into
+		// this proxy when multiple Gateways listen on the same port.
+		if gw.GetSelector() != nil {
+			gatewaySelector := labels.Instance(gw.GetSelector())
+			if !gatewaySelector.SubsetOf(proxy.Labels) {
+				continue
+			}
+		}
 		if gwsvcstr, f := cfg.Annotations[InternalGatewayServiceAnnotation]; f {
 			gwsvcs := strings.Split(gwsvcstr, ",")
 			known := sets.New[string](gwsvcs...)
@@ -2567,10 +2569,7 @@ func (ps *PushContext) mergeGateways(proxy *Proxy) *MergedGateway {
 			// no selector. Applies to all workloads asking for the gateway
 			gatewayInstances = append(gatewayInstances, gatewayWithInstances{cfg, true, proxy.ServiceTargets})
 		} else {
-			gatewaySelector := labels.Instance(gw.GetSelector())
-			if gatewaySelector.SubsetOf(proxy.Labels) {
-				gatewayInstances = append(gatewayInstances, gatewayWithInstances{cfg, true, proxy.ServiceTargets})
-			}
+			gatewayInstances = append(gatewayInstances, gatewayWithInstances{cfg, true, proxy.ServiceTargets})
 		}
 	}
 

@@ -21,9 +21,7 @@ import (
 	"go.uber.org/atomic"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
-	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
-	gateway "sigs.k8s.io/gateway-api/apis/v1beta1"
-	gatewayx "sigs.k8s.io/gateway-api/apisx/v1alpha1"
+	gateway "sigs.k8s.io/gateway-api/apis/v1"
 
 	"istio.io/api/annotation"
 	istio "istio.io/api/networking/v1alpha3"
@@ -73,7 +71,7 @@ func (g ListenerSet) Equals(other ListenerSet) bool {
 }
 
 func ListenerSetCollection(
-	listenerSets krt.Collection[*gatewayx.XListenerSet],
+	listenerSets krt.Collection[*gateway.ListenerSet],
 	gateways krt.Collection[*gateway.Gateway],
 	gatewayClasses krt.Collection[GatewayClass],
 	namespaces krt.Collection[*corev1.Namespace],
@@ -85,11 +83,11 @@ func ListenerSetCollection(
 	tagWatcher krt.RecomputeProtected[revisions.TagWatcher],
 	opts krt.OptionsBuilder,
 ) (
-	krt.StatusCollection[*gatewayx.XListenerSet, gatewayx.ListenerSetStatus],
+	krt.StatusCollection[*gateway.ListenerSet, gateway.ListenerSetStatus],
 	krt.Collection[ListenerSet],
 ) {
 	statusCol, gw := krt.NewStatusManyCollection(listenerSets,
-		func(ctx krt.HandlerContext, obj *gatewayx.XListenerSet) (*gatewayx.ListenerSetStatus, []ListenerSet) {
+		func(ctx krt.HandlerContext, obj *gateway.ListenerSet) (*gateway.ListenerSetStatus, []ListenerSet) {
 			// We currently depend on service discovery information not know to krt; mark we depend on it.
 			context := gatewayContext.Get(ctx).Load()
 			if context == nil {
@@ -108,7 +106,7 @@ func ListenerSetCollection(
 				return nil, nil
 			}
 
-			pns := ptr.OrDefault(p.Namespace, gatewayx.Namespace(obj.Namespace))
+			pns := ptr.OrDefault(p.Namespace, gateway.Namespace(obj.Namespace))
 			parentGwObj := ptr.Flatten(krt.FetchOne(ctx, gateways, krt.FilterKey(string(pns)+"/"+string(p.Name))))
 			if parentGwObj == nil {
 				// Cannot report status since we don't know if it is for us
@@ -188,7 +186,7 @@ func ListenerSetCollection(
 
 				allowed, _ := generateSupportedKinds(standardListener)
 				ref := parentKey{
-					Kind:      gvk.XListenerSet,
+					Kind:      gvk.ListenerSet,
 					Name:      obj.Name,
 					Namespace: obj.Namespace,
 				}
@@ -270,8 +268,11 @@ func GatewayCollection(
 		gatewayServices, err := extractGatewayServices(domainSuffix, obj, classInfo)
 		if len(gatewayServices) == 0 && err != nil {
 			// Short circuit if its a hard failure
-			reportGatewayStatus(context, obj, status, classInfo, gatewayServices, servers, 0, err)
+			reportGatewayStatus(context, obj, status, classInfo, gatewayServices, servers, 0, err, 0)
 			return status, nil
+		}
+		if err == nil {
+			err = validateParametersRef(ctx, obj, configMaps)
 		}
 
 		// See: https://istio.io/latest/docs/tasks/traffic-management/ingress/gateway-api/#manual-deployment
@@ -285,9 +286,13 @@ func GatewayCollection(
 			)
 		}
 
+		validListeners := 0
 		for i, l := range kgw.Listeners {
 			server, updatedStatus, programmed := buildListener(ctx, configMaps, secrets, grants, namespaces, obj, status.Listeners, kgw, l, i, controllerName, nil)
 			status.Listeners = updatedStatus
+			if programmed {
+				validListeners++
+			}
 
 			servers = append(servers, server)
 			if controllerName == constants.ManagedGatewayMeshController || controllerName == constants.ManagedGatewayEastWestController {
@@ -351,7 +356,7 @@ func GatewayCollection(
 			})
 		}
 
-		reportGatewayStatus(context, obj, status, classInfo, gatewayServices, servers, len(listenersFromSets), err)
+		reportGatewayStatus(context, obj, status, classInfo, gatewayServices, servers, len(listenersFromSets), err, validListeners)
 		return status, result
 	}, opts.WithName("KubernetesGateway")...)
 
@@ -426,41 +431,51 @@ func BuildRouteParents(
 	}
 }
 
-func detectListenerPortNumber(l gatewayx.ListenerEntry) (gatewayx.PortNumber, error) {
+func validateParametersRef(ctx krt.HandlerContext, gw *gateway.Gateway, configMaps krt.Collection[*corev1.ConfigMap]) *ConfigError {
+	if gw.Spec.Infrastructure == nil || gw.Spec.Infrastructure.ParametersRef == nil {
+		return nil
+	}
+	params := gw.Spec.Infrastructure.ParametersRef
+	if string(params.Kind) != gvk.ConfigMap.Kind || string(params.Group) != gvk.ConfigMap.Group {
+		return &ConfigError{
+			Reason:  string(gateway.GatewayReasonInvalidParameters),
+			Message: fmt.Sprintf("Unsupported parametersRef group/kind %s/%s, only ConfigMap is supported", params.Group, params.Kind),
+		}
+	}
+	cm := ptr.Flatten(krt.FetchOne(ctx, configMaps, krt.FilterKey(gw.Namespace+"/"+params.Name)))
+	if cm == nil {
+		return &ConfigError{
+			Reason:  string(gateway.GatewayReasonInvalidParameters),
+			Message: fmt.Sprintf("parametersRef ConfigMap %s/%s does not exist", gw.Namespace, params.Name),
+		}
+	}
+	return nil
+}
+
+func detectListenerPortNumber(l gateway.ListenerEntry) (gateway.PortNumber, error) {
 	if l.Port != 0 {
 		return l.Port, nil
 	}
 	switch l.Protocol {
-	case gatewayv1.HTTPProtocolType:
+	case gateway.HTTPProtocolType:
 		return 80, nil
-	case gatewayv1.HTTPSProtocolType:
+	case gateway.HTTPSProtocolType:
 		return 443, nil
 	}
 	return 0, fmt.Errorf("protocol %v requires a port to be set", l.Protocol)
 }
 
-func convertStandardStatusToListenerSetStatus(l gatewayx.ListenerEntry) func(e gateway.ListenerStatus) gatewayx.ListenerEntryStatus {
-	return func(e gateway.ListenerStatus) gatewayx.ListenerEntryStatus {
-		return gatewayx.ListenerEntryStatus{
-			Name:           e.Name,
-			Port:           l.Port,
-			SupportedKinds: e.SupportedKinds,
-			AttachedRoutes: e.AttachedRoutes,
-			Conditions:     e.Conditions,
-		}
+func convertStandardStatusToListenerSetStatus(l gateway.ListenerEntry) func(e gateway.ListenerStatus) gateway.ListenerEntryStatus {
+	return func(e gateway.ListenerStatus) gateway.ListenerEntryStatus {
+		return gateway.ListenerEntryStatus(e)
 	}
 }
 
-func convertListenerSetStatusToStandardStatus(e gatewayx.ListenerEntryStatus) gateway.ListenerStatus {
-	return gateway.ListenerStatus{
-		Name:           e.Name,
-		SupportedKinds: e.SupportedKinds,
-		AttachedRoutes: e.AttachedRoutes,
-		Conditions:     e.Conditions,
-	}
+func convertListenerSetStatusToStandardStatus(e gateway.ListenerEntryStatus) gateway.ListenerStatus {
+	return gateway.ListenerStatus(e)
 }
 
-func convertListenerSetToListener(l gatewayx.ListenerEntry) gateway.Listener {
+func convertListenerSetToListener(l gateway.ListenerEntry) gateway.Listener {
 	// For now, structs are identical enough Go can cast them. I doubt this will hold up forever, but we can adjust as needed.
 	return gateway.Listener(l)
 }

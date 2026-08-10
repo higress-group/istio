@@ -681,6 +681,20 @@ func BenchmarkStats(t *testing.B) {
 	}
 }
 
+func TestHandleAppProbeUnknownPathDoesNotReflectInput(t *testing.T) {
+	server := &Server{appKubeProbers: KubeAppProbers{}}
+	request := httptest.NewRequest(http.MethodGet, "/%3Cscript%3Ealert(1)%3C/script%3E", nil)
+	response := httptest.NewRecorder()
+
+	server.handleAppProbe(response, request)
+
+	assert.Equal(t, response.Code, http.StatusBadRequest)
+	assert.Equal(t, response.Header().Get("X-Content-Type-Options"), "nosniff")
+	if strings.Contains(response.Body.String(), "<script>") {
+		t.Fatalf("response reflected the untrusted probe path: %q", response.Body.String())
+	}
+}
+
 func TestAppProbe(t *testing.T) {
 	t.Skip("this test is being skipped for now")
 	// Starts the application first.

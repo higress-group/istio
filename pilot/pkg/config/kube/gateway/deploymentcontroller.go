@@ -33,9 +33,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/mergepatch"
 	"k8s.io/apimachinery/pkg/util/strategicpatch"
-	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
-	gateway "sigs.k8s.io/gateway-api/apis/v1beta1"
-	gatewayx "sigs.k8s.io/gateway-api/apisx/v1alpha1"
+	gateway "sigs.k8s.io/gateway-api/apis/v1"
 	"sigs.k8s.io/yaml"
 
 	"istio.io/api/annotation"
@@ -97,8 +95,8 @@ type DeploymentController struct {
 	patcher             patcher
 	gateways            kclient.Client[*gateway.Gateway]
 	gatewayClasses      kclient.Client[*gateway.GatewayClass]
-	listenerSets        kclient.Informer[*gatewayx.XListenerSet]
-	listenerSetByParent kclient.Index[types.NamespacedName, *gatewayx.XListenerSet]
+	listenerSets        kclient.Informer[*gateway.ListenerSet]
+	listenerSetByParent kclient.Index[types.NamespacedName, *gateway.ListenerSet]
 
 	clients         map[schema.GroupVersionResource]getter
 	injectConfig    func() inject.WebhookConfig
@@ -147,6 +145,21 @@ type classInfo struct {
 var classInfos = getClassInfos()
 
 var builtinClasses = getBuiltinClasses()
+
+const higressManagedGatewayControllerPrefix = "higress.io/gateway-controller"
+
+func higressManagedClassInfo(controller gateway.GatewayController) (classInfo, bool) {
+	if !strings.HasPrefix(string(controller), higressManagedGatewayControllerPrefix) {
+		return classInfo{}, false
+	}
+	return classInfo{
+		controller:         string(controller),
+		description:        "A Higress managed GatewayClass",
+		templates:          "higress-kube-gateway",
+		defaultServiceType: corev1.ServiceTypeClusterIP,
+		addressType:        gateway.HostnameAddressType,
+	}, true
+}
 
 func getBuiltinClasses() map[gateway.ObjectName]gateway.GatewayController {
 	res := map[gateway.ObjectName]gateway.GatewayController{
@@ -269,15 +282,13 @@ func NewDeploymentController(
 		controllers.WithReconciler(dc.Reconcile),
 		controllers.WithMaxAttempts(5))
 
-	if features.EnableAlphaGatewayAPI {
-		dc.listenerSets = kclient.NewDelayedInformer[*gatewayx.XListenerSet](client, gvr.XListenerSet, kubetypes.StandardInformer, filter)
-		dc.listenerSetByParent = kclient.CreateIndex(dc.listenerSets, "parent", func(o *gatewayx.XListenerSet) []types.NamespacedName {
-			return []types.NamespacedName{extractListenerSetParent(o)}
-		})
-		dc.listenerSets.AddEventHandler(controllers.TypedObjectHandler(func(o *gatewayx.XListenerSet) {
-			dc.queue.Add(extractListenerSetParent(o))
-		}))
-	}
+	dc.listenerSets = kclient.NewDelayedInformer[*gateway.ListenerSet](client, gvr.ListenerSet, kubetypes.StandardInformer, filter)
+	dc.listenerSetByParent = kclient.CreateIndex(dc.listenerSets, "parent", func(o *gateway.ListenerSet) []types.NamespacedName {
+		return []types.NamespacedName{extractListenerSetParent(o)}
+	})
+	dc.listenerSets.AddEventHandler(controllers.TypedObjectHandler(func(o *gateway.ListenerSet) {
+		dc.queue.Add(extractListenerSetParent(o))
+	}))
 
 	// Set up a handler that will add the parent Gateway object onto the queue.
 	// The queue will only handle Gateway objects; if child resources (Service, etc) are updated we re-add
@@ -388,9 +399,9 @@ func NewDeploymentController(
 	return dc
 }
 
-func extractListenerSetParent(o *gatewayx.XListenerSet) types.NamespacedName {
+func extractListenerSetParent(o *gateway.ListenerSet) types.NamespacedName {
 	n := o.Spec.ParentRef.Name
-	ns := ptr.OrDefault(o.Spec.ParentRef.Namespace, gatewayx.Namespace(o.Namespace))
+	ns := ptr.OrDefault(o.Spec.ParentRef.Namespace, gateway.Namespace(o.Namespace))
 	return types.NamespacedName{
 		Namespace: string(ns),
 		Name:      string(n),
@@ -449,6 +460,9 @@ func (d *DeploymentController) Reconcile(req types.NamespacedName) error {
 		}
 	}
 	ci, f := classInfos[controller]
+	if !f {
+		ci, f = higressManagedClassInfo(controller)
+	}
 	if !f {
 		log.Debugf("skipping unknown controller %q", controller)
 		return nil
@@ -574,6 +588,7 @@ func (d *DeploymentController) configureIstioGateway(log *istiolog.Scope, gw gat
 func (d *DeploymentController) setLabelOverrides(gw gateway.Gateway, input TemplateInput) {
 	isWaypointGateway := strings.Contains(string(gw.Spec.GatewayClassName), "waypoint")
 	isEastWestGateway := strings.Contains(string(gw.Spec.GatewayClassName), "east-west")
+	input.InfrastructureLabels[gateway.GatewayClassNameLabelKey] = string(gw.Spec.GatewayClassName)
 
 	var hasAmbientLabel bool
 	if _, ok := gw.Labels[label.IoIstioDataplaneMode.Name]; ok {
@@ -614,7 +629,7 @@ func translateInfraMeta[K ~string, V ~string](meta map[K]V) map[string]string {
 	return infra
 }
 
-func extractInfrastructureMetadata(gwInfra *gatewayv1.GatewayInfrastructure, isLabel bool, gw gateway.Gateway) map[string]string {
+func extractInfrastructureMetadata(gwInfra *gateway.GatewayInfrastructure, isLabel bool, gw gateway.Gateway) map[string]string {
 	if gwInfra != nil && isLabel && gwInfra.Labels != nil {
 		return translateInfraMeta(gwInfra.Labels)
 	}
@@ -867,13 +882,15 @@ func fetchParameters(gw *gateway.Gateway) (*types.NamespacedName, error) {
 }
 
 func (d *DeploymentController) setGatewayControllerVersion(gws gateway.Gateway) error {
-	patch := fmt.Sprintf(`{"apiVersion":"gateway.networking.k8s.io/v1beta1","kind":"Gateway","metadata":{"annotations":{"%s":"%d"}}}`,
+	patch := fmt.Sprintf(`{"apiVersion":"gateway.networking.k8s.io/v1","kind":"Gateway","metadata":{"annotations":{"%s":"%d"}}}`,
 		ControllerVersionAnnotation, ControllerVersion)
 
 	log.Debugf("applying %v", patch)
-	// Use status RBAC so we do not require full Gateway write.
-	// `status` write can modify annotations, and we already need to write status anyway so we have the permission.
-	return d.patcher(gvr.KubernetesGateway, gws.GetName(), gws.GetNamespace(), []byte(patch), "status")
+	// Patch the main resource. Recent Kubernetes versions ignore metadata changes
+	// sent to the status subresource, which leaves the ownership annotation unset
+	// and prevents the Gateway update from retriggering status resolution after
+	// the managed Service is created.
+	return d.patcher(gvr.KubernetesGateway, gws.GetName(), gws.GetNamespace(), []byte(patch))
 }
 
 // apply server-side applies a template to the cluster.

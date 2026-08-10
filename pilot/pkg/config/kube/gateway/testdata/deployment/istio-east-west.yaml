@@ -1,4 +1,4 @@
-apiVersion: gateway.networking.k8s.io/v1beta1
+apiVersion: gateway.networking.k8s.io/v1
 kind: Gateway
 metadata:
   annotations:
@@ -190,6 +190,7 @@ spec:
         - mountPath: /etc/istio/pod
           name: istio-podinfo
       serviceAccountName: eastwestgateway
+      terminationGracePeriodSeconds: 2
       volumes:
       - emptyDir: {}
         name: workload-socket

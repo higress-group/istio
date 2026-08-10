@@ -16,6 +16,7 @@ package core
 
 import (
 	"fmt"
+	"math"
 	"reflect"
 	"testing"
 
@@ -29,6 +30,24 @@ import (
 	"istio.io/istio/pilot/pkg/networking/util"
 	"istio.io/istio/pkg/test/util/assert"
 )
+
+func TestNormalizeConcurrencyThreshold(t *testing.T) {
+	for _, testCase := range []struct {
+		name  string
+		input int
+		want  uint32
+	}{
+		{name: "zero", input: 0, want: 0},
+		{name: "normal", input: 1024, want: 1024},
+		{name: "maximum", input: math.MaxUint32, want: math.MaxUint32},
+		{name: "negative clamps to maximum", input: -1, want: math.MaxUint32},
+		{name: "overflow clamps to maximum", input: math.MaxUint32 + 1, want: math.MaxUint32},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			assert.Equal(t, normalizeConcurrencyThreshold(testCase.input), testCase.want)
+		})
+	}
+}
 
 func TestApplyUpstreamProxyProtocol(t *testing.T) {
 	istioMutualTLSSettings := &networking.ClientTLSSettings{

@@ -200,7 +200,7 @@ func (x XdsCacheImpl) Clear(s sets.Set[ConfigKey]) {
 		x.eds.Clear(s)
 	}
 
-	if hasServiceEntry || hasVirtualService || hasHTTPRoute || hasDestiantionRule || hasEnvoyFilter {
+	if hasServiceEntry || hasVirtualService || hasHTTPRoute || hasDestiantionRule || hasEnvoyFilter || hasGateway {
 		x.rds.Clear(s)
 	}
 	if hasSecret {

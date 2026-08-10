@@ -528,8 +528,10 @@ func TranslateRoute(
 	// resolved. Traffic to such clusters will blackhole.
 
 	// Match by the destination port specified in the match condition
-	if match != nil && match.Port != 0 && match.Port != uint32(listenPort) {
-		return nil
+	if match != nil && match.Port != 0 {
+		if listenPort < 0 || listenPort > 65535 || match.Port != uint32(listenPort) {
+			return nil
+		}
 	}
 	// Match by source labels/gateway names inside the match condition
 	if !sourceMatchHTTP(match, node.Labels, gatewayNames, node.Metadata.Namespace) {
@@ -975,7 +977,7 @@ func ApplyRedirect(out *route.Route, redirect *networking.HTTPRedirect, port int
 	if redirect.RedirectPort != nil {
 		switch rp := redirect.RedirectPort.(type) {
 		case *networking.HTTPRedirect_DerivePort:
-			if rp.DerivePort == networking.HTTPRedirect_FROM_REQUEST_PORT {
+			if rp.DerivePort == networking.HTTPRedirect_FROM_REQUEST_PORT && port >= 0 && port <= 65535 {
 				// Envoy doesn't actually support deriving the port from the request dynamically. However,
 				// we always generate routes in the context of a specific request port. As a result, we can just
 				// use that port

@@ -395,3 +395,38 @@ func TestPatchRewriteProbe(t *testing.T) {
 		}
 	}
 }
+
+func TestPatchRewriteProbeStatusPortBounds(t *testing.T) {
+	for _, testCase := range []struct {
+		name       string
+		annotation string
+		wantPort   int32
+	}{
+		{name: "maximum port", annotation: "65535", wantPort: 65535},
+		{name: "overflow uses default", annotation: "65536", wantPort: 15020},
+		{name: "negative uses default", annotation: "-1", wantPort: 15020},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			pod := &corev1.Pod{
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{
+							Name: "app",
+							ReadinessProbe: &corev1.Probe{
+								ProbeHandler: corev1.ProbeHandler{
+									HTTPGet: &corev1.HTTPGetAction{},
+								},
+							},
+						},
+					},
+				},
+			}
+
+			patchRewriteProbe(map[string]string{
+				annotation.SidecarStatusPort.Name: testCase.annotation,
+			}, pod, 15020)
+
+			assert.Equal(t, pod.Spec.Containers[0].ReadinessProbe.HTTPGet.Port.IntVal, testCase.wantPort)
+		})
+	}
+}

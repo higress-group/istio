@@ -11,16 +11,16 @@ import (
 )
 
 var (
-	AuthorizationPolicy            = config.GroupVersionKind{Group: "security.istio.io", Version: "v1beta1", Kind: "AuthorizationPolicy"}
+	AuthorizationPolicy            = config.GroupVersionKind{Group: "security.istio.io", Version: "v1", Kind: "AuthorizationPolicy"}
 	AuthorizationPolicy_v1beta1    = config.GroupVersionKind{Group: "security.istio.io", Version: "v1beta1", Kind: "AuthorizationPolicy"}
-	BackendTLSPolicy               = config.GroupVersionKind{Group: "gateway.networking.k8s.io", Version: "v1alpha3", Kind: "BackendTLSPolicy"}
+	BackendTLSPolicy               = config.GroupVersionKind{Group: "gateway.networking.k8s.io", Version: "v1", Kind: "BackendTLSPolicy"}
 	CertificateSigningRequest      = config.GroupVersionKind{Group: "certificates.k8s.io", Version: "v1", Kind: "CertificateSigningRequest"}
 	ClusterTrustBundle             = config.GroupVersionKind{Group: "certificates.k8s.io", Version: "v1beta1", Kind: "ClusterTrustBundle"}
 	ConfigMap                      = config.GroupVersionKind{Group: "", Version: "v1", Kind: "ConfigMap"}
 	CustomResourceDefinition       = config.GroupVersionKind{Group: "apiextensions.k8s.io", Version: "v1", Kind: "CustomResourceDefinition"}
 	DaemonSet                      = config.GroupVersionKind{Group: "apps", Version: "v1", Kind: "DaemonSet"}
 	Deployment                     = config.GroupVersionKind{Group: "apps", Version: "v1", Kind: "Deployment"}
-	DestinationRule                = config.GroupVersionKind{Group: "networking.istio.io", Version: "v1alpha3", Kind: "DestinationRule"}
+	DestinationRule                = config.GroupVersionKind{Group: "networking.istio.io", Version: "v1", Kind: "DestinationRule"}
 	DestinationRule_v1alpha3       = config.GroupVersionKind{Group: "networking.istio.io", Version: "v1alpha3", Kind: "DestinationRule"}
 	DestinationRule_v1beta1        = config.GroupVersionKind{Group: "networking.istio.io", Version: "v1beta1", Kind: "DestinationRule"}
 	EndpointSlice                  = config.GroupVersionKind{Group: "", Version: "v1", Kind: "EndpointSlice"}
@@ -28,65 +28,67 @@ var (
 	EnvoyFilter                    = config.GroupVersionKind{Group: "networking.istio.io", Version: "v1alpha3", Kind: "EnvoyFilter"}
 	GRPCRoute                      = config.GroupVersionKind{Group: "gateway.networking.k8s.io", Version: "v1", Kind: "GRPCRoute"}
 	GRPCRoute_v1alpha2             = config.GroupVersionKind{Group: "gateway.networking.k8s.io", Version: "v1alpha2", Kind: "GRPCRoute"}
-	Gateway                        = config.GroupVersionKind{Group: "networking.istio.io", Version: "v1alpha3", Kind: "Gateway"}
+	Gateway                        = config.GroupVersionKind{Group: "networking.istio.io", Version: "v1", Kind: "Gateway"}
 	Gateway_v1alpha3               = config.GroupVersionKind{Group: "networking.istio.io", Version: "v1alpha3", Kind: "Gateway"}
 	Gateway_v1beta1                = config.GroupVersionKind{Group: "networking.istio.io", Version: "v1beta1", Kind: "Gateway"}
-	GatewayClass                   = config.GroupVersionKind{Group: "gateway.networking.k8s.io", Version: "v1beta1", Kind: "GatewayClass"}
+	GatewayClass                   = config.GroupVersionKind{Group: "gateway.networking.k8s.io", Version: "v1", Kind: "GatewayClass"}
 	GatewayClass_v1alpha2          = config.GroupVersionKind{Group: "gateway.networking.k8s.io", Version: "v1alpha2", Kind: "GatewayClass"}
-	GatewayClass_v1                = config.GroupVersionKind{Group: "gateway.networking.k8s.io", Version: "v1", Kind: "GatewayClass"}
-	HTTPRoute                      = config.GroupVersionKind{Group: "gateway.networking.k8s.io", Version: "v1beta1", Kind: "HTTPRoute"}
+	GatewayClass_v1beta1           = config.GroupVersionKind{Group: "gateway.networking.k8s.io", Version: "v1beta1", Kind: "GatewayClass"}
+	HTTPRoute                      = config.GroupVersionKind{Group: "gateway.networking.k8s.io", Version: "v1", Kind: "HTTPRoute"}
 	HTTPRoute_v1alpha2             = config.GroupVersionKind{Group: "gateway.networking.k8s.io", Version: "v1alpha2", Kind: "HTTPRoute"}
-	HTTPRoute_v1                   = config.GroupVersionKind{Group: "gateway.networking.k8s.io", Version: "v1", Kind: "HTTPRoute"}
+	HTTPRoute_v1beta1              = config.GroupVersionKind{Group: "gateway.networking.k8s.io", Version: "v1beta1", Kind: "HTTPRoute"}
 	HorizontalPodAutoscaler        = config.GroupVersionKind{Group: "autoscaling", Version: "v2", Kind: "HorizontalPodAutoscaler"}
 	InferencePool                  = config.GroupVersionKind{Group: "inference.networking.k8s.io", Version: "v1", Kind: "InferencePool"}
 	Ingress                        = config.GroupVersionKind{Group: "networking.k8s.io", Version: "v1", Kind: "Ingress"}
 	IngressClass                   = config.GroupVersionKind{Group: "networking.k8s.io", Version: "v1", Kind: "IngressClass"}
-	KubernetesGateway              = config.GroupVersionKind{Group: "gateway.networking.k8s.io", Version: "v1beta1", Kind: "Gateway"}
+	KubernetesGateway              = config.GroupVersionKind{Group: "gateway.networking.k8s.io", Version: "v1", Kind: "Gateway"}
 	KubernetesGateway_v1alpha2     = config.GroupVersionKind{Group: "gateway.networking.k8s.io", Version: "v1alpha2", Kind: "Gateway"}
-	KubernetesGateway_v1           = config.GroupVersionKind{Group: "gateway.networking.k8s.io", Version: "v1", Kind: "Gateway"}
+	KubernetesGateway_v1beta1      = config.GroupVersionKind{Group: "gateway.networking.k8s.io", Version: "v1beta1", Kind: "Gateway"}
 	Lease                          = config.GroupVersionKind{Group: "coordination.k8s.io", Version: "v1", Kind: "Lease"}
+	ListenerSet                    = config.GroupVersionKind{Group: "gateway.networking.k8s.io", Version: "v1", Kind: "ListenerSet"}
 	MeshConfig                     = config.GroupVersionKind{Group: "", Version: "v1alpha1", Kind: "MeshConfig"}
 	MeshNetworks                   = config.GroupVersionKind{Group: "", Version: "v1alpha1", Kind: "MeshNetworks"}
 	MutatingWebhookConfiguration   = config.GroupVersionKind{Group: "admissionregistration.k8s.io", Version: "v1", Kind: "MutatingWebhookConfiguration"}
 	Namespace                      = config.GroupVersionKind{Group: "", Version: "v1", Kind: "Namespace"}
 	Node                           = config.GroupVersionKind{Group: "", Version: "v1", Kind: "Node"}
-	PeerAuthentication             = config.GroupVersionKind{Group: "security.istio.io", Version: "v1beta1", Kind: "PeerAuthentication"}
+	PeerAuthentication             = config.GroupVersionKind{Group: "security.istio.io", Version: "v1", Kind: "PeerAuthentication"}
 	PeerAuthentication_v1beta1     = config.GroupVersionKind{Group: "security.istio.io", Version: "v1beta1", Kind: "PeerAuthentication"}
 	Pod                            = config.GroupVersionKind{Group: "", Version: "v1", Kind: "Pod"}
 	PodDisruptionBudget            = config.GroupVersionKind{Group: "policy", Version: "v1", Kind: "PodDisruptionBudget"}
 	ProxyConfig                    = config.GroupVersionKind{Group: "networking.istio.io", Version: "v1beta1", Kind: "ProxyConfig"}
 	ReferenceGrant                 = config.GroupVersionKind{Group: "gateway.networking.k8s.io", Version: "v1beta1", Kind: "ReferenceGrant"}
 	ReferenceGrant_v1alpha2        = config.GroupVersionKind{Group: "gateway.networking.k8s.io", Version: "v1alpha2", Kind: "ReferenceGrant"}
-	RequestAuthentication          = config.GroupVersionKind{Group: "security.istio.io", Version: "v1beta1", Kind: "RequestAuthentication"}
+	RequestAuthentication          = config.GroupVersionKind{Group: "security.istio.io", Version: "v1", Kind: "RequestAuthentication"}
 	RequestAuthentication_v1beta1  = config.GroupVersionKind{Group: "security.istio.io", Version: "v1beta1", Kind: "RequestAuthentication"}
 	Secret                         = config.GroupVersionKind{Group: "", Version: "v1", Kind: "Secret"}
 	Service                        = config.GroupVersionKind{Group: "", Version: "v1", Kind: "Service"}
 	ServiceAccount                 = config.GroupVersionKind{Group: "", Version: "v1", Kind: "ServiceAccount"}
-	ServiceEntry                   = config.GroupVersionKind{Group: "networking.istio.io", Version: "v1alpha3", Kind: "ServiceEntry"}
+	ServiceEntry                   = config.GroupVersionKind{Group: "networking.istio.io", Version: "v1", Kind: "ServiceEntry"}
 	ServiceEntry_v1alpha3          = config.GroupVersionKind{Group: "networking.istio.io", Version: "v1alpha3", Kind: "ServiceEntry"}
 	ServiceEntry_v1beta1           = config.GroupVersionKind{Group: "networking.istio.io", Version: "v1beta1", Kind: "ServiceEntry"}
-	Sidecar                        = config.GroupVersionKind{Group: "networking.istio.io", Version: "v1alpha3", Kind: "Sidecar"}
+	Sidecar                        = config.GroupVersionKind{Group: "networking.istio.io", Version: "v1", Kind: "Sidecar"}
 	Sidecar_v1alpha3               = config.GroupVersionKind{Group: "networking.istio.io", Version: "v1alpha3", Kind: "Sidecar"}
 	Sidecar_v1beta1                = config.GroupVersionKind{Group: "networking.istio.io", Version: "v1beta1", Kind: "Sidecar"}
 	StatefulSet                    = config.GroupVersionKind{Group: "apps", Version: "v1", Kind: "StatefulSet"}
-	TCPRoute                       = config.GroupVersionKind{Group: "gateway.networking.k8s.io", Version: "v1alpha2", Kind: "TCPRoute"}
-	TLSRoute                       = config.GroupVersionKind{Group: "gateway.networking.k8s.io", Version: "v1alpha2", Kind: "TLSRoute"}
-	Telemetry                      = config.GroupVersionKind{Group: "telemetry.istio.io", Version: "v1alpha1", Kind: "Telemetry"}
+	TCPRoute                       = config.GroupVersionKind{Group: "gateway.networking.k8s.io", Version: "v1", Kind: "TCPRoute"}
+	TCPRoute_v1alpha2              = config.GroupVersionKind{Group: "gateway.networking.k8s.io", Version: "v1alpha2", Kind: "TCPRoute"}
+	TLSRoute                       = config.GroupVersionKind{Group: "gateway.networking.k8s.io", Version: "v1", Kind: "TLSRoute"}
+	TLSRoute_v1alpha2              = config.GroupVersionKind{Group: "gateway.networking.k8s.io", Version: "v1alpha2", Kind: "TLSRoute"}
+	Telemetry                      = config.GroupVersionKind{Group: "telemetry.istio.io", Version: "v1", Kind: "Telemetry"}
 	Telemetry_v1alpha1             = config.GroupVersionKind{Group: "telemetry.istio.io", Version: "v1alpha1", Kind: "Telemetry"}
 	UDPRoute                       = config.GroupVersionKind{Group: "gateway.networking.k8s.io", Version: "v1alpha2", Kind: "UDPRoute"}
 	ValidatingWebhookConfiguration = config.GroupVersionKind{Group: "admissionregistration.k8s.io", Version: "v1", Kind: "ValidatingWebhookConfiguration"}
-	VirtualService                 = config.GroupVersionKind{Group: "networking.istio.io", Version: "v1alpha3", Kind: "VirtualService"}
+	VirtualService                 = config.GroupVersionKind{Group: "networking.istio.io", Version: "v1", Kind: "VirtualService"}
 	VirtualService_v1alpha3        = config.GroupVersionKind{Group: "networking.istio.io", Version: "v1alpha3", Kind: "VirtualService"}
 	VirtualService_v1beta1         = config.GroupVersionKind{Group: "networking.istio.io", Version: "v1beta1", Kind: "VirtualService"}
 	WasmPlugin                     = config.GroupVersionKind{Group: "extensions.istio.io", Version: "v1alpha1", Kind: "WasmPlugin"}
-	WorkloadEntry                  = config.GroupVersionKind{Group: "networking.istio.io", Version: "v1alpha3", Kind: "WorkloadEntry"}
+	WorkloadEntry                  = config.GroupVersionKind{Group: "networking.istio.io", Version: "v1", Kind: "WorkloadEntry"}
 	WorkloadEntry_v1alpha3         = config.GroupVersionKind{Group: "networking.istio.io", Version: "v1alpha3", Kind: "WorkloadEntry"}
 	WorkloadEntry_v1beta1          = config.GroupVersionKind{Group: "networking.istio.io", Version: "v1beta1", Kind: "WorkloadEntry"}
-	WorkloadGroup                  = config.GroupVersionKind{Group: "networking.istio.io", Version: "v1alpha3", Kind: "WorkloadGroup"}
+	WorkloadGroup                  = config.GroupVersionKind{Group: "networking.istio.io", Version: "v1", Kind: "WorkloadGroup"}
 	WorkloadGroup_v1alpha3         = config.GroupVersionKind{Group: "networking.istio.io", Version: "v1alpha3", Kind: "WorkloadGroup"}
 	WorkloadGroup_v1beta1          = config.GroupVersionKind{Group: "networking.istio.io", Version: "v1beta1", Kind: "WorkloadGroup"}
 	XBackendTrafficPolicy          = config.GroupVersionKind{Group: "gateway.networking.x-k8s.io", Version: "v1alpha1", Kind: "XBackendTrafficPolicy"}
-	XListenerSet                   = config.GroupVersionKind{Group: "gateway.networking.x-k8s.io", Version: "v1alpha1", Kind: "XListenerSet"}
 )
 
 // ToGVR converts a GVK to a GVR.
@@ -136,14 +138,14 @@ func ToGVR(g config.GroupVersionKind) (schema.GroupVersionResource, bool) {
 		return gvr.GatewayClass, true
 	case GatewayClass_v1alpha2:
 		return gvr.GatewayClass_v1alpha2, true
-	case GatewayClass_v1:
-		return gvr.GatewayClass_v1, true
+	case GatewayClass_v1beta1:
+		return gvr.GatewayClass_v1beta1, true
 	case HTTPRoute:
 		return gvr.HTTPRoute, true
 	case HTTPRoute_v1alpha2:
 		return gvr.HTTPRoute_v1alpha2, true
-	case HTTPRoute_v1:
-		return gvr.HTTPRoute_v1, true
+	case HTTPRoute_v1beta1:
+		return gvr.HTTPRoute_v1beta1, true
 	case HorizontalPodAutoscaler:
 		return gvr.HorizontalPodAutoscaler, true
 	case InferencePool:
@@ -156,10 +158,12 @@ func ToGVR(g config.GroupVersionKind) (schema.GroupVersionResource, bool) {
 		return gvr.KubernetesGateway, true
 	case KubernetesGateway_v1alpha2:
 		return gvr.KubernetesGateway_v1alpha2, true
-	case KubernetesGateway_v1:
-		return gvr.KubernetesGateway_v1, true
+	case KubernetesGateway_v1beta1:
+		return gvr.KubernetesGateway_v1beta1, true
 	case Lease:
 		return gvr.Lease, true
+	case ListenerSet:
+		return gvr.ListenerSet, true
 	case MeshConfig:
 		return gvr.MeshConfig, true
 	case MeshNetworks:
@@ -210,8 +214,12 @@ func ToGVR(g config.GroupVersionKind) (schema.GroupVersionResource, bool) {
 		return gvr.StatefulSet, true
 	case TCPRoute:
 		return gvr.TCPRoute, true
+	case TCPRoute_v1alpha2:
+		return gvr.TCPRoute_v1alpha2, true
 	case TLSRoute:
 		return gvr.TLSRoute, true
+	case TLSRoute_v1alpha2:
+		return gvr.TLSRoute_v1alpha2, true
 	case Telemetry:
 		return gvr.Telemetry, true
 	case Telemetry_v1alpha1:
@@ -242,8 +250,6 @@ func ToGVR(g config.GroupVersionKind) (schema.GroupVersionResource, bool) {
 		return gvr.WorkloadGroup_v1beta1, true
 	case XBackendTrafficPolicy:
 		return gvr.XBackendTrafficPolicy, true
-	case XListenerSet:
-		return gvr.XListenerSet, true
 	}
 
 	return schema.GroupVersionResource{}, false
@@ -295,6 +301,8 @@ func ToKind(g config.GroupVersionKind) (kind.Kind, bool) {
 		return kind.KubernetesGateway, true
 	case Lease:
 		return kind.Lease, true
+	case ListenerSet:
+		return kind.ListenerSet, true
 	case MeshConfig:
 		return kind.MeshConfig, true
 	case MeshNetworks:
@@ -349,8 +357,6 @@ func ToKind(g config.GroupVersionKind) (kind.Kind, bool) {
 		return kind.WorkloadGroup, true
 	case XBackendTrafficPolicy:
 		return kind.XBackendTrafficPolicy, true
-	case XListenerSet:
-		return kind.XListenerSet, true
 	}
 
 	return kind.Unknown, false
@@ -421,6 +427,8 @@ func FromGVR(g schema.GroupVersionResource) (config.GroupVersionKind, bool) {
 		return KubernetesGateway, true
 	case gvr.Lease:
 		return Lease, true
+	case gvr.ListenerSet:
+		return ListenerSet, true
 	case gvr.MeshConfig:
 		return MeshConfig, true
 	case gvr.MeshNetworks:
@@ -475,8 +483,6 @@ func FromGVR(g schema.GroupVersionResource) (config.GroupVersionKind, bool) {
 		return WorkloadGroup, true
 	case gvr.XBackendTrafficPolicy:
 		return XBackendTrafficPolicy, true
-	case gvr.XListenerSet:
-		return XListenerSet, true
 	}
 
 	return config.GroupVersionKind{}, false

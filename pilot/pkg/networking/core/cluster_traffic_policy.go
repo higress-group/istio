@@ -427,6 +427,7 @@ func setWarmup(warmup *networking.WarmupConfiguration) *cluster.Cluster_SlowStar
 // getDefaultCircuitBreakerThresholds returns a copy of the default circuit breaker thresholds for the given traffic direction.
 func getDefaultCircuitBreakerThresholds() *cluster.CircuitBreakers_Thresholds {
 	// Modified by ingress
+	threshold := normalizeConcurrencyThreshold(alifeatures.DefaultUpstreamConcurrencyThreshold)
 	return &cluster.CircuitBreakers_Thresholds{
 		// DefaultMaxRetries specifies the default for the Envoy circuit breaker parameter max_retries. This
 		// defines the maximum number of parallel retries a given Envoy will allow to the upstream cluster. Envoy defaults
@@ -434,12 +435,19 @@ func getDefaultCircuitBreakerThresholds() *cluster.CircuitBreakers_Thresholds {
 		// where multiple endpoints in a cluster are terminated. In these scenarios the circuit breaker can kick
 		// in before Pilot is able to deliver an updated endpoint list to Envoy, leading to client-facing 503s.
 		MaxRetries:         &wrapperspb.UInt32Value{Value: math.MaxUint32},
-		MaxRequests:        &wrappers.UInt32Value{Value: uint32(alifeatures.DefaultUpstreamConcurrencyThreshold)},
-		MaxConnections:     &wrappers.UInt32Value{Value: uint32(alifeatures.DefaultUpstreamConcurrencyThreshold)},
-		MaxPendingRequests: &wrappers.UInt32Value{Value: uint32(alifeatures.DefaultUpstreamConcurrencyThreshold)},
+		MaxRequests:        &wrappers.UInt32Value{Value: threshold},
+		MaxConnections:     &wrappers.UInt32Value{Value: threshold},
+		MaxPendingRequests: &wrappers.UInt32Value{Value: threshold},
 		TrackRemaining:     true,
 	}
 	// End modified by ingress
+}
+
+func normalizeConcurrencyThreshold(concurrencyThreshold int) uint32 {
+	if concurrencyThreshold < 0 || uint64(concurrencyThreshold) > math.MaxUint32 {
+		return math.MaxUint32
+	}
+	return uint32(concurrencyThreshold)
 }
 
 // FIXME: there isn't a way to distinguish between unset values and zero values

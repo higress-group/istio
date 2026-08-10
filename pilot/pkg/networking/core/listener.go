@@ -674,7 +674,7 @@ func (lb *ListenerBuilder) buildHTTPProxy(node *model.Proxy,
 ) *listener.Listener {
 	httpProxyPort := push.Mesh.ProxyHttpPort // global
 	if node.Metadata.HTTPProxyPort != "" {
-		port, err := strconv.Atoi(node.Metadata.HTTPProxyPort)
+		port, err := strconv.ParseUint(node.Metadata.HTTPProxyPort, 10, 16)
 		if err == nil {
 			httpProxyPort = int32(port)
 		}

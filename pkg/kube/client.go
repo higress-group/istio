@@ -330,7 +330,7 @@ func NewFakeClient(objects ...runtime.Object) CLIClient {
 	c.istio = setupFakeClient(istiofake.NewSimpleClientset(), "istio", objects)
 	c.gatewayapi = setupFakeClient(gatewayapifake.NewSimpleClientset(), "gateway", objects)
 	c.gatewayapiinference = setupFakeClient(gatewayapiinferencefake.NewSimpleClientset(), "inference", objects)
-	c.extSet = extfake.NewClientset()
+	c.extSet = extfake.NewSimpleClientset()
 
 	// https://github.com/kubernetes/kubernetes/issues/95372
 	// There is a race condition in the client fakes, where events that happen between the List and Watch
@@ -372,6 +372,7 @@ func NewFakeClient(objects ...runtime.Object) CLIClient {
 	}
 	for _, fc := range []fakeClient{
 		c.kube.(*fake.Clientset),
+		c.extSet.(*extfake.Clientset),
 		c.istio.(*istiofake.Clientset),
 		c.gatewayapi.(*gatewayapifake.Clientset),
 		c.gatewayapiinference.(*gatewayapiinferencefake.Clientset),

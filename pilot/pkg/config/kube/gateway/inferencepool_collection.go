@@ -24,8 +24,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	inferencev1 "sigs.k8s.io/gateway-api-inference-extension/api/v1"
-	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
-	gateway "sigs.k8s.io/gateway-api/apis/v1beta1"
+	gateway "sigs.k8s.io/gateway-api/apis/v1"
 
 	"istio.io/istio/pkg/config/constants"
 	"istio.io/istio/pkg/config/schema/gvk"
@@ -54,8 +53,8 @@ const ControllerName = "inference-controller"
 
 var supportedControllers = getSupportedControllers()
 
-func getSupportedControllers() sets.Set[gatewayv1.GatewayController] {
-	ret := sets.New[gatewayv1.GatewayController]()
+func getSupportedControllers() sets.Set[gateway.GatewayController] {
+	ret := sets.New[gateway.GatewayController]()
 	for _, controller := range builtinClasses {
 		ret.Insert(controller)
 	}
@@ -289,9 +288,9 @@ func routeReferencesInferencePool(route *gateway.HTTPRoute, pool *inferencev1.In
 }
 
 // isInferencePoolBackendRef checks if a BackendRef is pointing to an InferencePool
-func isInferencePoolBackendRef(backendRef gatewayv1.BackendRef) bool {
-	return ptr.OrEmpty(backendRef.Group) == gatewayv1.Group(gvk.InferencePool.Group) &&
-		ptr.OrEmpty(backendRef.Kind) == gatewayv1.Kind(gvk.InferencePool.Kind)
+func isInferencePoolBackendRef(backendRef gateway.BackendRef) bool {
+	return ptr.OrEmpty(backendRef.Group) == gateway.Group(gvk.InferencePool.Group) &&
+		ptr.OrEmpty(backendRef.Kind) == gateway.Kind(gvk.InferencePool.Kind)
 }
 
 // calculateSingleParentStatus calculates the status for a single gateway parent
@@ -367,7 +366,7 @@ func calculateAcceptedStatus(
 			if string(parentStatus.ParentRef.Name) == gatewayParent.Name && gatewayNamespace == gatewayParent.Namespace {
 				// Check if this parent is accepted
 				for _, parentCondition := range parentStatus.Conditions {
-					if parentCondition.Type == string(gatewayv1.RouteConditionAccepted) {
+					if parentCondition.Type == string(gateway.RouteConditionAccepted) {
 						if parentCondition.Status == metav1.ConditionTrue {
 							return &condition{
 								reason:  string(inferencev1.InferencePoolReasonAccepted),

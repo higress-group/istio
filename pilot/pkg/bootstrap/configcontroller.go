@@ -210,30 +210,33 @@ func (s *Server) initK8SConfigStore(args *PilotArgs) error {
 				Run(stop)
 			return nil
 		})
-		if features.EnableGatewayAPIDeploymentController {
-			s.addTerminatingStartFunc("gateway deployment controller", func(stop <-chan struct{}) error {
-				leaderelection.
-					NewPerRevisionLeaderElection(args.Namespace, args.PodName, leaderelection.BuildClusterScopedLeaderElection(leaderelection.GatewayDeploymentController), args.Revision, s.kubeClient).
-					AddRunFunction(func(leaderStop <-chan struct{}) {
-						// We can only run this if the Gateway CRD is created
-						if s.kubeClient.CrdWatcher().WaitForCRD(gvr.KubernetesGateway, leaderStop) {
-							tagWatcher := revisions.NewTagWatcher(s.kubeClient, args.Revision)
-							controller := gateway.NewDeploymentController(s.kubeClient, s.clusterID, s.environment,
-								s.webhookInfo.getWebhookConfig, s.webhookInfo.addHandler, tagWatcher, args.Revision, args.Namespace)
-							// Start informers again. This fixes the case where informers for namespace do not start,
-							// as we create them only after acquiring the leader lock
-							// Note: stop here should be the overall pilot stop, NOT the leader election stop. We are
-							// basically lazy loading the informer, if we stop it when we lose the lock we will never
-							// recreate it again.
-							s.kubeClient.RunAndWait(stop)
-							go tagWatcher.Run(leaderStop)
-							controller.Run(leaderStop)
-						}
-					}).
-					Run(stop)
-				return nil
-			})
-		}
+	}
+	// The deployment controller is useful independently of Istio's Gateway API
+	// translation controller. Higress supplies its own translation controller,
+	// while reusing this controller to provision isolated data planes.
+	if features.EnableGatewayAPIDeploymentController {
+		s.addTerminatingStartFunc("gateway deployment controller", func(stop <-chan struct{}) error {
+			leaderelection.
+				NewPerRevisionLeaderElection(args.Namespace, args.PodName, leaderelection.BuildClusterScopedLeaderElection(leaderelection.GatewayDeploymentController), args.Revision, s.kubeClient).
+				AddRunFunction(func(leaderStop <-chan struct{}) {
+					// We can only run this if the Gateway CRD is created
+					if s.kubeClient.CrdWatcher().WaitForCRD(gvr.KubernetesGateway, leaderStop) {
+						tagWatcher := revisions.NewTagWatcher(s.kubeClient, args.Revision)
+						controller := gateway.NewDeploymentController(s.kubeClient, s.clusterID, s.environment,
+							s.webhookInfo.getWebhookConfig, s.webhookInfo.addHandler, tagWatcher, args.Revision, args.Namespace)
+						// Start informers again. This fixes the case where informers for namespace do not start,
+						// as we create them only after acquiring the leader lock
+						// Note: stop here should be the overall pilot stop, NOT the leader election stop. We are
+						// basically lazy loading the informer, if we stop it when we lose the lock we will never
+						// recreate it again.
+						s.kubeClient.RunAndWait(stop)
+						go tagWatcher.Run(leaderStop)
+						controller.Run(leaderStop)
+					}
+				}).
+				Run(stop)
+			return nil
+		})
 	}
 	if features.EnableAmbientStatus {
 		statusWritingEnabled := activenotifier.New(false)

@@ -19,13 +19,12 @@ import (
 	"sync"
 
 	"github.com/Masterminds/semver/v3"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	apixv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/gateway-api/pkg/consts"
 
 	"istio.io/istio/pilot/pkg/features"
-	"istio.io/istio/pkg/config/schema/gvr"
 	"istio.io/istio/pkg/kube"
 	"istio.io/istio/pkg/kube/controllers"
 	"istio.io/istio/pkg/kube/kubetypes"
@@ -33,13 +32,18 @@ import (
 )
 
 type crdWatcher struct {
-	crds      Informer[*metav1.PartialObjectMetadata]
+	crds      Informer[*apixv1.CustomResourceDefinition]
 	queue     controllers.Queue
 	mutex     sync.RWMutex
-	callbacks map[string][]func()
+	callbacks map[string][]crdCallback
 
 	running chan struct{}
 	stop    <-chan struct{}
+}
+
+type crdCallback struct {
+	resource schema.GroupVersionResource
+	callback func()
 }
 
 func init() {
@@ -51,13 +55,14 @@ func init() {
 func newCrdWatcher(client kube.Client) kubetypes.CrdWatcher {
 	c := &crdWatcher{
 		running:   make(chan struct{}),
-		callbacks: map[string][]func(){},
+		callbacks: map[string][]crdCallback{},
 	}
 
 	c.queue = controllers.NewQueue("crd watcher",
 		controllers.WithReconciler(c.Reconcile))
-	c.crds = NewMetadata(client, gvr.CustomResourceDefinition, Filter{
-		ObjectFilter: kubetypes.NewStaticObjectFilter(minimumVersionFilter),
+	c.crds = NewFiltered[*apixv1.CustomResourceDefinition](client, Filter{
+		ObjectFilter:    kubetypes.NewStaticObjectFilter(minimumVersionFilter),
+		ObjectTransform: stripCRDUnusedFields,
 	})
 	c.crds.AddEventHandler(controllers.ObjectHandler(c.queue.AddObject))
 	return c
@@ -76,7 +81,7 @@ var minimumCRDVersions = map[string]*semver.Version{
 // The user may have opted into using an experimental CRD, but not to experimental usage *in Istio* so this isn't acceptable.
 func minimumVersionFilter(t any) bool {
 	// Setup a filter
-	crd := t.(*metav1.PartialObjectMetadata)
+	crd := t.(*apixv1.CustomResourceDefinition)
 	mv, f := minimumCRDVersions[crd.Name]
 	if !f {
 		return true
@@ -103,6 +108,29 @@ func minimumVersionFilter(t any) bool {
 		return false
 	}
 	return true
+}
+
+// stripCRDUnusedFields avoids retaining CRD schemas, which can be large. The watcher only needs
+// metadata and the served versions to determine whether a specific GVR is available.
+func stripCRDUnusedFields(obj any) (any, error) {
+	crd := obj.(*apixv1.CustomResourceDefinition)
+	versions := make([]apixv1.CustomResourceDefinitionVersion, 0, len(crd.Spec.Versions))
+	for _, version := range crd.Spec.Versions {
+		versions = append(versions, apixv1.CustomResourceDefinitionVersion{
+			Name:    version.Name,
+			Served:  version.Served,
+			Storage: version.Storage,
+		})
+	}
+	metadata := crd.ObjectMeta.DeepCopy()
+	metadata.ManagedFields = nil
+	return &apixv1.CustomResourceDefinition{
+		TypeMeta:   crd.TypeMeta,
+		ObjectMeta: *metadata,
+		Spec: apixv1.CustomResourceDefinitionSpec{
+			Versions: versions,
+		},
+	}, nil
 }
 
 // HasSynced returns whether the underlying cache has synced and the callback has been called at least once.
@@ -155,12 +183,15 @@ func (c *crdWatcher) KnownOrCallback(s schema.GroupVersionResource, f func(stop 
 		return true
 	}
 	name := fmt.Sprintf("%s.%s", s.Resource, s.Group)
-	c.callbacks[name] = append(c.callbacks[name], func() {
-		if features.EnableUnsafeAssertions && c.stop == nil {
-			log.Fatal("CRD Watcher callback called without stop set")
-		}
-		// Call the callback
-		f(c.stop)
+	c.callbacks[name] = append(c.callbacks[name], crdCallback{
+		resource: s,
+		callback: func() {
+			if features.EnableUnsafeAssertions && c.stop == nil {
+				log.Fatal("CRD Watcher callback called without stop set")
+			}
+			// Call the callback
+			f(c.stop)
+		},
 	})
 	return false
 }
@@ -168,7 +199,16 @@ func (c *crdWatcher) KnownOrCallback(s schema.GroupVersionResource, f func(stop 
 func (c *crdWatcher) known(s schema.GroupVersionResource) bool {
 	// From the spec: "Its name MUST be in the format <.spec.name>.<.spec.group>."
 	name := fmt.Sprintf("%s.%s", s.Resource, s.Group)
-	return c.crds.Get(name, "") != nil
+	crd := c.crds.Get(name, "")
+	if crd == nil {
+		return false
+	}
+	for _, version := range crd.Spec.Versions {
+		if version.Name == s.Version && version.Served {
+			return true
+		}
+	}
+	return false
 }
 
 func (c *crdWatcher) Reconcile(key types.NamespacedName) error {
@@ -178,10 +218,22 @@ func (c *crdWatcher) Reconcile(key types.NamespacedName) error {
 		c.mutex.Unlock()
 		return nil
 	}
-	// Delete them so we do not run again
-	delete(c.callbacks, key.Name)
-	c.mutex.Unlock()
+	ready := make([]func(), 0, len(callbacks))
+	pending := make([]crdCallback, 0, len(callbacks))
 	for _, cb := range callbacks {
+		if c.known(cb.resource) {
+			ready = append(ready, cb.callback)
+		} else {
+			pending = append(pending, cb)
+		}
+	}
+	if len(pending) == 0 {
+		delete(c.callbacks, key.Name)
+	} else {
+		c.callbacks[key.Name] = pending
+	}
+	c.mutex.Unlock()
+	for _, cb := range ready {
 		cb()
 	}
 	return nil
