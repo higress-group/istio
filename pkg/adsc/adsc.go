@@ -1313,6 +1313,9 @@ func extractExtraFromResourceUnknownFields(resource *mcp.Resource) (map[string]a
 		for routeName, rawConfig := range rawConfigs {
 			if configMap, ok := rawConfig.(map[string]interface{}); ok {
 				config := kube.InferencePoolRouteRuleConfig{}
+				if mode, ok := configMap["Mode"].(string); ok {
+					config.Mode = kube.InferencePoolEndpointPickerMode(mode)
+				}
 				if fqdn, ok := configMap["FQDN"].(string); ok {
 					config.FQDN = fqdn
 				}

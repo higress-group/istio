@@ -564,7 +564,8 @@ func TranslateRoute(
 	}
 
 	var hostnames []host.Name
-	if infPoolRouteRuleCfg, ok := opts.InferencePoolExtensionRefs[in.Name]; ok {
+	if infPoolRouteRuleCfg, ok := opts.InferencePoolExtensionRefs[in.Name]; ok &&
+		infPoolRouteRuleCfg.Mode != kube.InferencePoolEndpointPickerModeBuiltin {
 		log.Infof("[TranslateRoute] inference pool route rule: %+v, route name: %s", infPoolRouteRuleCfg, in.Name)
 		// This route has an inference pool config, set up ext_proc
 		extSvcHost := host.Name(infPoolRouteRuleCfg.FQDN)

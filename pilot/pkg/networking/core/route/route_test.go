@@ -15,13 +15,15 @@
 package route_test
 
 import (
+	"encoding/json"
 	"log"
 	"reflect"
+	"strings"
 	"testing"
 
 	envoycore "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	envoyroute "github.com/envoyproxy/go-control-plane/envoy/config/route/v3"
-	//extproc "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/ext_proc/v3"
+	extproc "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/http/ext_proc/v3"
 	matcher "github.com/envoyproxy/go-control-plane/envoy/type/matcher/v3"
 	. "github.com/onsi/gomega"
 	"google.golang.org/protobuf/types/known/durationpb"
@@ -37,13 +39,24 @@ import (
 	"istio.io/istio/pilot/test/xdstest"
 	"istio.io/istio/pkg/config"
 	"istio.io/istio/pkg/config/constants"
-	//"istio.io/istio/pkg/config/gateway/kube"
+	"istio.io/istio/pkg/config/gateway/kube"
 	"istio.io/istio/pkg/config/host"
 	"istio.io/istio/pkg/config/protocol"
 	"istio.io/istio/pkg/config/schema/gvk"
 	"istio.io/istio/pkg/util/sets"
-	//"istio.io/istio/pkg/wellknown"
+	"istio.io/istio/pkg/wellknown"
 )
+
+func TestInferencePoolRouteRuleConfigJSONMode(t *testing.T) {
+	external, err := json.Marshal(kube.InferencePoolRouteRuleConfig{})
+	if err != nil || strings.Contains(string(external), `"Mode"`) {
+		t.Fatalf("External config must omit Mode, got %s: %v", external, err)
+	}
+	builtin, err := json.Marshal(kube.InferencePoolRouteRuleConfig{Mode: kube.InferencePoolEndpointPickerModeBuiltin})
+	if err != nil || !strings.Contains(string(builtin), `"Mode":"builtin"`) {
+		t.Fatalf("BuiltIn config must include Mode, got %s: %v", builtin, err)
+	}
+}
 
 func buildRouteOpts(sr map[host.Name]*model.Service, hash route.DestinationHashMap) route.RouteOptions {
 	return route.RouteOptions{
@@ -1262,6 +1275,36 @@ func TestBuildHTTPRoutes(t *testing.T) {
 		for _, vhost := range vhosts {
 			g.Expect(vhost.Services).To(HaveLen(1))
 			g.Expect(vhost.Routes).To(HaveLen(1))
+		}
+	})
+
+	t.Run("inference pool endpoint picker modes are isolated per route", func(t *testing.T) {
+		for _, tt := range []struct {
+			name        string
+			mode        kube.InferencePoolEndpointPickerMode
+			wantExtProc bool
+		}{
+			{name: "external default", mode: kube.InferencePoolEndpointPickerModeExternal, wantExtProc: true},
+			{name: "legacy zero value remains external", wantExtProc: true},
+			{name: "builtin", mode: kube.InferencePoolEndpointPickerModeBuiltin, wantExtProc: false},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				g := NewWithT(t)
+				cg := core.NewConfigGenTest(t, core.TestOptions{})
+				routeOpts := buildRouteOpts(serviceRegistry, nil)
+				routeOpts.InferencePoolExtensionRefs = map[string]kube.InferencePoolRouteRuleConfig{
+					"routeA": {Mode: tt.mode, FQDN: "ext-proc-svc.test-namespace.svc.cluster.local", Port: "9002"},
+				}
+				routes, err := route.BuildHTTPRoutesForVirtualService(node(cg), virtualServicePlain, 8080, gatewayNames, routeOpts)
+				g.Expect(err).NotTo(HaveOccurred())
+				_, found := routes[0].GetTypedPerFilterConfig()[wellknown.HTTPExternalProcessing]
+				g.Expect(found).To(Equal(tt.wantExtProc))
+				if found {
+					perRoute := new(extproc.ExtProcPerRoute)
+					g.Expect(routes[0].GetTypedPerFilterConfig()[wellknown.HTTPExternalProcessing].UnmarshalTo(perRoute)).To(Succeed())
+					g.Expect(perRoute.GetOverrides().GetGrpcService().GetEnvoyGrpc().GetClusterName()).To(Equal("outbound|9002||ext-proc-svc.test-namespace.svc.cluster.local"))
+				}
+			})
 		}
 	})
 

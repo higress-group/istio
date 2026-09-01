@@ -16,14 +16,18 @@ package core
 
 import (
 	"fmt"
+	"math"
 	"net"
 	"strconv"
 	"strings"
+	"time"
 
 	cluster "github.com/envoyproxy/go-control-plane/envoy/config/cluster/v3"
 	core "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	endpoint "github.com/envoyproxy/go-control-plane/envoy/config/endpoint/v3"
 	discovery "github.com/envoyproxy/go-control-plane/envoy/service/discovery/v3"
+	typev3 "github.com/envoyproxy/go-control-plane/envoy/type/v3"
+	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/structpb"
 	wrappers "google.golang.org/protobuf/types/known/wrapperspb"
 
@@ -36,6 +40,7 @@ import (
 	"istio.io/istio/pilot/pkg/serviceregistry/provider"
 	"istio.io/istio/pilot/pkg/util/protoconv"
 	"istio.io/istio/pilot/pkg/xds/endpoints"
+	"istio.io/istio/pkg/config/constants"
 	"istio.io/istio/pkg/config/host"
 	"istio.io/istio/pkg/config/protocol"
 	"istio.io/istio/pkg/config/schema/kind"
@@ -345,7 +350,6 @@ func (configgen *ConfigGeneratorImpl) buildOutboundClusters(cb *ClusterBuilder, 
 			if defaultCluster == nil {
 				continue
 			}
-
 			// if the service uses persistent sessions, override status allows
 			// DRAINING endpoints to be kept as 'UNHEALTHY' coarse status in envoy.
 			// Will not be used for normal traffic, only when explicit override.
@@ -366,10 +370,18 @@ func (configgen *ConfigGeneratorImpl) buildOutboundClusters(cb *ClusterBuilder, 
 			subsetClusters := cb.applyDestinationRule(defaultCluster, DefaultClusterMode, service, port,
 				clusterKey.endpointBuilder, clusterKey.destinationRule.GetRule(), clusterKey.serviceAccounts)
 
-			if service.UseInferenceSemantics() && proxy.Type == model.Router {
+			builtinInferencePool := service.UseInferenceSemantics() && proxy.Type == model.Router &&
+				service.Attributes.Labels[constants.InferencePoolEndpointPickerModeLabel] == constants.InferencePoolEndpointPickerModeBuiltin
+			if service.UseInferenceSemantics() && proxy.Type == model.Router && !builtinInferencePool {
 				cb.applyOverrideHostPolicy(defaultCluster)
 			}
-			if patched := cp.patch(nil, defaultCluster.build()); patched != nil {
+			var patched *discovery.Resource
+			if builtinInferencePool {
+				patched = cp.patchBuiltinInferencePool(nil, defaultCluster.build(), string(service.Hostname))
+			} else {
+				patched = cp.patch(nil, defaultCluster.build())
+			}
+			if patched != nil {
 				resources = append(resources, patched)
 				if features.EnableCDSCaching {
 					cb.cache.Add(&clusterKey, cb.req, patched)
@@ -402,6 +414,41 @@ func (p clusterPatcher) patch(hosts []host.Name, c *cluster.Cluster) *discovery.
 		return nil
 	}
 	return &discovery.Resource{Name: cluster.Name, Resource: protoconv.MessageToAny(cluster)}
+}
+
+func (p clusterPatcher) patchBuiltinInferencePool(hosts []host.Name, c *cluster.Cluster, servingHost string) *discovery.Resource {
+	cluster := p.doPatch(hosts, c)
+	if cluster == nil {
+		return nil
+	}
+	// The built-in picker reads endpoint load from Envoy's health-check metrics.
+	// Apply this after EnvoyFilter patches so the inference cluster has one
+	// authoritative metrics probe and cannot retain competing health checks.
+	cluster.HealthChecks = []*core.HealthCheck{inferencePoolMetricsHealthCheck(servingHost)}
+	// Active health checking normally keeps an EDS-removed host pending until
+	// the probe fails. The picker reads the complete host set, so remove such a
+	// host immediately instead of exposing its last metrics snapshot.
+	cluster.IgnoreHealthOnHostRemoval = true
+	return &discovery.Resource{Name: cluster.Name, Resource: protoconv.MessageToAny(cluster)}
+}
+
+func inferencePoolMetricsHealthCheck(servingHost string) *core.HealthCheck {
+	return &core.HealthCheck{
+		Timeout:            durationpb.New(2 * time.Second),
+		Interval:           durationpb.New(2 * time.Second),
+		UnhealthyThreshold: wrappers.UInt32(math.MaxUint32),
+		HealthyThreshold:   wrappers.UInt32(1),
+		StoreMetrics:       true,
+		HealthChecker: &core.HealthCheck_HttpHealthCheck_{
+			HttpHealthCheck: &core.HealthCheck_HttpHealthCheck{
+				Host: servingHost,
+				Path: "/metrics",
+				ExpectedStatuses: []*typev3.Int64Range{
+					{Start: 100, End: 600},
+				},
+			},
+		},
+	}
 }
 
 func (p clusterPatcher) doPatch(hosts []host.Name, c *cluster.Cluster) *cluster.Cluster {

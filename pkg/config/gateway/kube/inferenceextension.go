@@ -14,10 +14,22 @@
 
 package kube
 
+type InferencePoolEndpointPickerMode string
+
+const (
+	InferencePoolEndpointPickerModeExternal InferencePoolEndpointPickerMode = "external"
+	InferencePoolEndpointPickerModeBuiltin  InferencePoolEndpointPickerMode = "builtin"
+
+	BuiltinInferenceEndpointPickerGroup = "extensions.higress.io"
+	BuiltinInferenceEndpointPickerKind  = "WasmPlugin"
+	BuiltinInferenceEndpointPickerName  = "ai-endpoint-picker"
+)
+
 // InferencePoolRouteRuleConfig holds configuration for an inference pool associated with a route.
 // This data is stored in the `Extra` field of a `config.Config` for a VirtualService.
 // The map is keyed by the `HTTPRoute.Name`.
 type InferencePoolRouteRuleConfig struct {
+	Mode             InferencePoolEndpointPickerMode `json:",omitempty"`
 	FQDN             string
 	Port             string
 	FailureModeAllow bool

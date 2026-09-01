@@ -236,3 +236,8 @@ const (
 	GlobalWildcardHost       = "*"
 	// End added by ingress
 )
+
+const (
+	InferencePoolEndpointPickerModeLabel   = "higress.io/inferencepool-endpoint-picker-mode"
+	InferencePoolEndpointPickerModeBuiltin = "builtin"
+)
