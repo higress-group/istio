@@ -15,6 +15,9 @@
 package config
 
 import (
+	"fmt"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -22,9 +25,50 @@ import (
 	"google.golang.org/protobuf/testing/protocmp"
 	"google.golang.org/protobuf/types/known/durationpb"
 
+	"istio.io/api/annotation"
 	meshconfig "istio.io/api/mesh/v1alpha1"
 	"istio.io/istio/pkg/config/mesh"
 )
+
+func TestConstructProxyConfigExplicitConcurrency(t *testing.T) {
+	workDir := t.TempDir()
+	oldWorkDir, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(workDir); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := os.Chdir(oldWorkDir); err != nil {
+			t.Errorf("failed to restore working directory: %v", err)
+		}
+	})
+
+	podInfoDir := filepath.Join(workDir, "etc", "istio", "pod")
+	if err := os.MkdirAll(podInfoDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	annotations := fmt.Sprintf("%s=%q\n", annotation.ProxyConfig.Name, "concurrency: 4")
+	if err := os.WriteFile(filepath.Join(podInfoDir, "annotations"), []byte(annotations), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(podInfoDir, "cpu-limit"), []byte("16000"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	oldCPULimit := CPULimit
+	CPULimit = 0
+	t.Cleanup(func() { CPULimit = oldCPULimit })
+
+	proxyConfig, err := ConstructProxyConfig("", "test-cluster", "", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := proxyConfig.Concurrency.GetValue(); got != 4 {
+		t.Fatalf("expected explicit concurrency 4 to take precedence over CPU limit, got %d", got)
+	}
+}
 
 func TestGetMeshConfig(t *testing.T) {
 	meshOverride := `
