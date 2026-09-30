@@ -73,7 +73,7 @@ func ConstructProxyConfig(meshConfigFile, serviceCluster, proxyConfigEnv string,
 	if concurrency != 0 {
 		log.Warnf("legacy --concurrency=%d flag detected; prefer to use ProxyConfig", concurrency)
 		proxyConfig.Concurrency = wrapperspb.Int32(int32(concurrency))
-	} else {
+	} else if proxyConfig.Concurrency == nil {
 		// Added by ingress
 		// If concurrency is unset, we will automatically set this based on CPU requests/limits.
 		if byResources := alibootstrap.DetermineConcurrencyOption(); byResources != nil {
