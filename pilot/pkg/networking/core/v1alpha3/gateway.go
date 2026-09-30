@@ -944,7 +944,7 @@ func (configgen *ConfigGeneratorImpl) buildHostRDSConfig(
 		Resource: protoconv.MessageToAny(routeCfg),
 	}
 
-	if features.EnableRDSCaching && cacheable {
+	if features.EnableRDSCaching && cacheable && vHost != nil {
 		configgen.Cache.Add(routeCache, req, resource)
 	}
 
