@@ -310,6 +310,8 @@ func (configgen *ConfigGeneratorImpl) buildGatewayListeners(builder *ListenerBui
 			}
 		}
 	}
+
+	unpatchedListeners := make([]*listener.Listener, 0)
 	for _, ml := range mutableopts {
 		ml.mutable.Listener = buildGatewayListener(*ml.opts, ml.transport)
 		log.Debugf("buildGatewayListeners: marshaling listener %q with %d filter chains",
@@ -320,22 +322,28 @@ func (configgen *ConfigGeneratorImpl) buildGatewayListeners(builder *ListenerBui
 			errs = multierror.Append(errs, fmt.Errorf("gateway omitting listener %q due to: %v", ml.mutable.Listener.Name, err.Error()))
 			continue
 		}
-		listeners = append(listeners, ml.mutable.Listener)
-
-		if features.EnableLDSCaching {
-			listenerCache := &ListenerCache{
-				ListenerName:    ml.mutable.Listener.Name,
-				Gateways:        gatewaysByListenerName[ml.mutable.Listener.Name],
-				EnvoyFilterKeys: efKeys,
-				WasmPlugins:     listenerWasmPlugins,
+		unpatchedListeners = append(unpatchedListeners, ml.mutable.Listener)
+	}
+	if len(unpatchedListeners) > 0 {
+		builder.gatewayListeners = unpatchedListeners
+		builder.patchListeners()
+		for _, l := range builder.gatewayListeners {
+			if features.EnableLDSCaching {
+				listenerCache := &ListenerCache{
+					ListenerName:    l.Name,
+					Gateways:        gatewaysByListenerName[l.Name],
+					EnvoyFilterKeys: efKeys,
+					WasmPlugins:     listenerWasmPlugins,
+				}
+				resource := &discovery.Resource{
+					Name:     l.Name,
+					Resource: protoconv.MessageToAny(l),
+				}
+				configgen.Cache.Add(listenerCache, req, resource)
 			}
-			resource := &discovery.Resource{
-				Name:     ml.mutable.Listener.Name,
-				Resource: protoconv.MessageToAny(ml.mutable.Listener),
-			}
-			configgen.Cache.Add(listenerCache, req, resource)
 		}
 	}
+
 	// We'll try to return any listeners we successfully marshaled; if we have none, we'll emit the error we built up
 	err := errs.ErrorOrNil()
 	if err != nil {
@@ -348,7 +356,7 @@ func (configgen *ConfigGeneratorImpl) buildGatewayListeners(builder *ListenerBui
 		return builder, cacheStats{}
 	}
 
-	builder.gatewayListeners = listeners
+	builder.gatewayListeners = append(builder.gatewayListeners, listeners...)
 	return builder, cacheStats{hits: hit, miss: miss}
 }
 
