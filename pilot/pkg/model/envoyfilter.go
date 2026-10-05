@@ -100,6 +100,12 @@ func convertToEnvoyFilterWrapper(local *config.Config) *EnvoyFilterWrapper {
 		// Should only happen in tests or without validation
 		if err != nil {
 			log.Errorf("failed to build envoy filter value: %v", err)
+		} else {
+			// The value above is produced by protobuf-go's jsonpb, which fills nested Any
+			// payloads with a plain (map iteration order dependent) marshal. Envoy compares
+			// config by hash, so two pilot replicas must serialize the same EnvoyFilter
+			// identically or the difference looks like a config change. See canonicalizeAnys.
+			canonicalizeAnys(cpw.Value)
 		}
 		if cp.Match == nil {
 			// create a match all object
