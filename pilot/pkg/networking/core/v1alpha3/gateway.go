@@ -312,6 +312,9 @@ func (configgen *ConfigGeneratorImpl) buildGatewayListeners(builder *ListenerBui
 	}
 	for _, ml := range mutableopts {
 		ml.mutable.Listener = buildGatewayListener(*ml.opts, ml.transport)
+		// The chains were collected in map iteration order above; order them
+		// deterministically so the listener serializes identically in every process.
+		sortFilterChains(ml.mutable.Listener)
 		log.Debugf("buildGatewayListeners: marshaling listener %q with %d filter chains",
 			ml.mutable.Listener.GetName(), len(ml.mutable.Listener.GetFilterChains()))
 
