@@ -590,9 +590,29 @@ func (configgen *ConfigGeneratorImpl) buildHostRDSConfig(
 		}
 	}
 
+	// Scope the cache key and dependencies to the gateways that can actually affect this host's route:
+	// the gateways this proxy serves that the host's virtual services bind to. Gateways of other proxies
+	// are excluded by the intersection, so entries stay isolated per gateway as before.
+	// Using every merged gateway here made each host's key and dependency list O(#gateways). Since every
+	// Ingress becomes its own Gateway, adding one Ingress changed the key of every host, so all host routes
+	// were rebuilt and the dependency index grew to O(#hosts * #gateways) on each push.
 	gatewayNames := sets.New[string]()
-	for _, gatewayName := range merged.GatewayNameForServer {
-		gatewayNames.Insert(gatewayName)
+	for _, vs := range hostVs {
+		for _, gatewayName := range vs.Spec.(*networking.VirtualService).Gateways {
+			// Gateways are already resolved to namespace/name when the push context is initialized.
+			if merged.GatewayNames.Contains(gatewayName) {
+				gatewayNames.Insert(gatewayName)
+			}
+		}
+	}
+	// The alt-svc header depends on whether any gateway has a QUIC server on this port, so those
+	// gateways must stay in the key; there are normally none or very few.
+	for port, servers := range merged.MergedQUICTransportServers {
+		if port.Number == uint32(rdsPort) {
+			for _, server := range servers.Servers {
+				gatewayNames.Insert(merged.GatewayNameForServer[server])
+			}
+		}
 	}
 	routeCache := &istio_route.Cache{
 		RouteName:    routeName,

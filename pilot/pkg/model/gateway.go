@@ -73,6 +73,13 @@ type MergedGateway struct {
 	// Used for select the set of virtual services that apply to a port.
 	GatewayNameForServer map[*networking.Server]string
 
+	// Added by ingress
+	// GatewayNames is the set of all gateway names (namespace/name) merged for this proxy.
+	// It is computed once here so that per-host RDS generation can test membership in O(1)
+	// instead of rebuilding the set from GatewayNameForServer for every host.
+	GatewayNames sets.String
+	// End added by ingress
+
 	// ServersByRouteName maps from port names to virtual hosts
 	// Used for RDS. No two port names share same port except for HTTPS
 	// The typical length of the value is always 1, except for HTTP (not HTTPS),
@@ -165,6 +172,7 @@ func mergeGateways(gateways []gatewayWithInstances, proxy *Proxy, ps *PushContex
 	serversByRouteName := make(map[string][]*networking.Server)
 	tlsServerInfo := make(map[*networking.Server]*TLSServerInfo)
 	gatewayNameForServer := make(map[*networking.Server]string)
+	gatewayNames := sets.New[string]() // Added by ingress
 	verifiedCertificateReferences := sets.New[string]()
 	http3AdvertisingRoutes := sets.New[string]()
 	tlsHostsByPort := map[uint32]map[string]string{} // port -> host/bind map
@@ -174,6 +182,7 @@ func mergeGateways(gateways []gatewayWithInstances, proxy *Proxy, ps *PushContex
 	for _, gwAndInstance := range gateways {
 		gatewayConfig := gwAndInstance.gateway
 		gatewayName := gatewayConfig.Namespace + "/" + gatewayConfig.Name // Format: %s/%s
+		gatewayNames.Insert(gatewayName)                                  // Added by ingress
 		gatewayCfg := gatewayConfig.Spec.(*networking.Gateway)
 		log.Debugf("mergeGateways: merging gateway %q :\n%v", gatewayName, gatewayCfg)
 		snames := sets.String{}
@@ -390,6 +399,7 @@ func mergeGateways(gateways []gatewayWithInstances, proxy *Proxy, ps *PushContex
 		MergedQUICTransportServers:      mergedQUICServers,
 		ServerPorts:                     serverPorts,
 		GatewayNameForServer:            gatewayNameForServer,
+		GatewayNames:                    gatewayNames, // Added by ingress
 		TLSServerInfo:                   tlsServerInfo,
 		ServersByRouteName:              serversByRouteName,
 		HTTP3AdvertisingRoutes:          http3AdvertisingRoutes,
