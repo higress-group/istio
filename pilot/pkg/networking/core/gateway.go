@@ -590,30 +590,44 @@ func (configgen *ConfigGeneratorImpl) buildHostRDSConfig(
 		}
 	}
 
-	// Scope the cache key and dependencies to the gateways that can actually affect this host's route:
-	// the gateways this proxy serves that the host's virtual services bind to. Gateways of other proxies
-	// are excluded by the intersection, so entries stay isolated per gateway as before.
-	// Using every merged gateway here made each host's key and dependency list O(#gateways). Since every
-	// Ingress becomes its own Gateway, adding one Ingress changed the key of every host, so all host routes
-	// were rebuilt and the dependency index grew to O(#hosts * #gateways) on each push.
+	listenerPort := uint32(rdsPort)
+
+	// Scope the cache key and dependencies to the selected servers that can actually affect this host.
+	// A VirtualService binding alone is not sufficient: an unbound Gateway can win TLS host de-duplication
+	// and cause the bound server to be omitted from the merged servers. Conversely, skipped servers must
+	// not contribute to the key. Match against the namespaces of the host's VirtualServices to preserve
+	// Gateway host visibility semantics, including for an unbound server that wins a conflict.
 	gatewayNames := sets.New[string]()
+	hostNamespaces := sets.New[string]()
 	for _, vs := range hostVs {
-		for _, gatewayName := range vs.Spec.(*networking.VirtualService).Gateways {
-			// Gateways are already resolved to namespace/name when the push context is initialized.
-			if merged.GatewayNames.Contains(gatewayName) {
-				gatewayNames.Insert(gatewayName)
-			}
-		}
+		hostNamespaces.Insert(vs.Namespace)
 	}
-	// The alt-svc header depends on whether any gateway has a QUIC server on this port, so those
-	// gateways must stay in the key; there are normally none or very few.
-	for port, servers := range merged.MergedQUICTransportServers {
-		if port.Number == uint32(rdsPort) {
+	rdsHost := host.NewNames([]string{hostRDSHost})
+	isH3DiscoveryNeeded := false
+	collectSelectedGateways := func(mergedServers map[model.ServerPort]*model.MergedServers, quic bool) {
+		for port, servers := range mergedServers {
+			if port.Number != listenerPort {
+				continue
+			}
 			for _, server := range servers.Servers {
-				gatewayNames.Insert(merged.GatewayNameForServer[server])
+				for namespace := range hostNamespaces {
+					serverHosts := host.NamesForNamespace(server.Hosts, namespace)
+					if len(serverHosts.Intersection(rdsHost)) == 0 {
+						continue
+					}
+					gatewayNames.Insert(merged.GatewayNameForServer[server])
+					if quic {
+						isH3DiscoveryNeeded = true
+					}
+					break
+				}
 			}
 		}
 	}
+	collectSelectedGateways(merged.MergedServers, false)
+	// Only a QUIC server selected for this host can affect its routes or alt-svc header. Adding every
+	// same-port QUIC Gateway would make each host's key and dependency set O(#gateways).
+	collectSelectedGateways(merged.MergedQUICTransportServers, true)
 	routeCache := &istio_route.Cache{
 		RouteName:    routeName,
 		ProxyVersion: node.Metadata.IstioVersion,
@@ -637,19 +651,6 @@ func (configgen *ConfigGeneratorImpl) buildHostRDSConfig(
 		log.Warnf("route cache is disabled for RDS:%s", routeName)
 	}
 
-	listenerPort := uint32(rdsPort)
-
-	isH3DiscoveryNeeded := false
-
-	// When this is true, we add alt-svc header to the response to tell the client
-	// that HTTP/3 over QUIC is available on the same port for this host. This is
-	// very important for discovering HTTP/3 services
-	for port, servers := range merged.MergedQUICTransportServers {
-		if port.Number == listenerPort && len(servers.Servers) > 0 {
-			isH3DiscoveryNeeded = true
-			break
-		}
-	}
 	gatewayRoutes := make(map[string]map[string][]*route.Route)
 	gatewayVirtualServices := make(map[string][]config.Config)
 	var listenerVirtualServices []virtualServiceContext
